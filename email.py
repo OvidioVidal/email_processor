@@ -152,15 +152,57 @@ class MAProcessor:
         
         return 'TBD'
 
+    def assign_grade(self, deal: Dict) -> str:
+        """Assign intelligence grade based on deal content"""
+        text = (deal['title'] + ' ' + deal.get('original_text', '')).lower()
+        
+        if any(word in text for word in ['confirmed', 'announced', 'signed', 'completed', 'closed']):
+            return 'Strong evidence'
+        elif any(word in text for word in ['talks', 'discussions', 'considering', 'exploring', 'seeking']):
+            return 'Strong evidence'
+        elif any(word in text for word in ['rumour', 'rumored', 'speculation', 'report', 'sources said']):
+            return 'Rumoured'
+        elif any(word in text for word in ['ipo', 'listing', 'public offering']):
+            return 'Strong evidence'
+        else:
+            return 'Pending'
+    
+    def assign_size(self, deal: Dict) -> str:
+        """Assign deal size classification"""
+        value_text = (deal.get('value', '') + ' ' + deal.get('original_text', '')).lower()
+        
+        if any(indicator in value_text for indicator in ['billion', 'bn', '1,000m', '1000m']):
+            return '> 60m (GBP)'
+        elif any(indicator in value_text for indicator in ['300m', '500m', '600m', '700m', '800m', '900m']):
+            return '> 60m (GBP)'
+        elif any(indicator in value_text for indicator in ['60m', '70m', '80m', '90m', '100m']):
+            return '30m-60m (GBP)'
+        elif any(indicator in value_text for indicator in ['30m', '40m', '50m']):
+            return '30m-60m (GBP)'
+        elif any(indicator in value_text for indicator in ['5m', '6m', '7m', '8m', '10m', '15m', '20m', '25m']):
+            return '5m-30m (GBP)'
+        else:
+            return '5m-30m (GBP)'
+    
     def parse_email_content(self, content: str) -> List[Dict[str, Any]]:
-        """Parse M&A email content into structured deals"""
+        """Parse M&A email content into structured deals with professional formatting"""
         deals = []
         lines = content.split('\n')
         current_deal = None
+        current_sector = "Other"
         
         for i, line in enumerate(lines):
             line = line.strip()
             if not line:
+                continue
+            
+            # Check for sector header (single word or short phrase, capitalized, not numbered)
+            if (len(line.split()) <= 3 and 
+                line[0].isupper() and 
+                not re.match(r'^\d+\.', line) and
+                not line.startswith('*') and
+                not any(char in line for char in ['(', ')', '-', '€', '$', '£'])):
+                current_sector = line.title()
                 continue
                 
             # Check for deal header (numbered item)
@@ -177,47 +219,83 @@ class MAProcessor:
                 current_deal = {
                     'id': deal_id,
                     'title': title,
-                    'sector': self.extract_sector(title),
+                    'sector': current_sector,
+                    'auto_sector': self.extract_sector(title),  # Keep auto-detection as backup
                     'geography': self.extract_geography(title),
                     'details': [],
                     'summary': '',
+                    'full_content': '',
                     'value': self.extract_value(title),
                     'grade': '',
                     'size': '',
-                    'original_text': ''
+                    'original_text': title,
+                    'source': 'Proprietary Intelligence',
+                    'alert': 'UK and German M&A Alert',
+                    'intelligence_id': f'intelcms-{deal_id.zfill(2)}{hash(title) % 1000:03d}',
+                    'stake_value': 'N/A'
                 }
                 
-                # Collect next few lines for context
-                context_lines = []
-                for j in range(i + 1, min(i + 10, len(lines))):
-                    context_line = lines[j].strip()
-                    if context_line and not context_line.startswith(str(int(deal_id) + 1) + '.'):
-                        context_lines.append(context_line)
-                    else:
+                # Collect subsequent lines for this deal
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j].strip()
+                    if not next_line:
+                        j += 1
+                        continue
+                    
+                    # Stop if we hit the next numbered deal
+                    if re.match(r'^\d+\.', next_line):
                         break
-                
-                current_deal['original_text'] = '\n'.join(context_lines)
-                
-                # Extract additional info from context
-                for context_line in context_lines:
-                    if context_line.startswith('*'):
-                        current_deal['details'].append(context_line[1:].strip())
-                    elif 'Size:' in context_line:
-                        current_deal['size'] = context_line.split('Size:')[1].strip()
-                    elif 'Grade:' in context_line:
-                        current_deal['grade'] = context_line.split('Grade:')[1].strip()
-                    elif any(curr in context_line for curr in ['EUR', 'USD', 'GBP', 'billion', 'million']):
+                    
+                    # Stop if we hit a new sector header
+                    if (len(next_line.split()) <= 3 and 
+                        next_line[0].isupper() and 
+                        not next_line.startswith('*') and
+                        not any(char in next_line for char in ['(', ')', '-', '€', '$', '£'])):
+                        break
+                    
+                    current_deal['original_text'] += '\n' + next_line
+                    
+                    if next_line.startswith('*'):
+                        # Deal detail point
+                        current_deal['details'].append(next_line[1:].strip())
+                    elif len(next_line) > 50:
+                        # Longer content is likely detailed description
+                        if current_deal['full_content']:
+                            current_deal['full_content'] += '\n\n' + next_line
+                        else:
+                            current_deal['full_content'] = next_line
+                    elif 'Size:' in next_line:
+                        current_deal['size'] = next_line.split('Size:')[1].strip()
+                    elif 'Grade:' in next_line:
+                        current_deal['grade'] = next_line.split('Grade:')[1].strip()
+                    elif 'Stake Value:' in next_line:
+                        current_deal['stake_value'] = next_line.split('Stake Value:')[1].strip()
+                    elif any(curr in next_line for curr in ['EUR', 'USD', 'GBP', 'billion', 'million']):
                         if not current_deal['value'] or current_deal['value'] == 'TBD':
-                            current_deal['value'] = self.extract_value(context_line)
+                            current_deal['value'] = self.extract_value(next_line)
+                    
+                    j += 1
                 
-                # Create summary from first meaningful line
-                meaningful_lines = [cl for cl in context_lines if len(cl) > 30 and not cl.startswith('*')]
-                if meaningful_lines:
-                    current_deal['summary'] = meaningful_lines[0][:200]
+                # Create summary from first meaningful content
+                if current_deal['full_content']:
+                    current_deal['summary'] = current_deal['full_content'][:300] + ('...' if len(current_deal['full_content']) > 300 else '')
+                elif current_deal['details']:
+                    current_deal['summary'] = ' '.join(current_deal['details'][:2])
         
         # Don't forget the last deal
         if current_deal:
             deals.append(current_deal)
+        
+        # Assign grades and sizes based on content analysis
+        for deal in deals:
+            if not deal['grade']:
+                deal['grade'] = self.assign_grade(deal)
+            if not deal['size']:
+                deal['size'] = self.assign_size(deal)
+            # Use sector header if available, otherwise fall back to auto-detection
+            if deal['sector'] == "Other" and deal['auto_sector'] != "Other":
+                deal['sector'] = deal['auto_sector']
         
         return deals
 
@@ -416,31 +494,63 @@ def main():
     with col1:
         st.subheader("📧 Raw M&A Email Input")
         
-        # Sample data
-        sample_data = """Agriculture
-1. Stora Enso divests forest assets for EUR 900m
+        # Sample data matching professional format
+        sample_data = """Automotive
 
-Automotive
 2. Magirus could expand outside of Germany through acquisitions - report (translated)
+
 * Subsidiaries planned in Switzerland, Spain, Poland, and UAE
 * Aims to set up production sites in Romania, Croatia through acquisitions
 * Aims to double sales to EUR 750m by 2030
 
+Magirus, the German fire protection group, could acquire to expand its business outside of Germany, Schwäbische Zeitung reported.
+
+Without citing a specific source, the German daily said Magirus wants to establish subsidiaries in Switzerland, Spain, Poland and the United Arab Emirates.
+
+Source: Schwäbische Zeitung
+Size: 60m-300m (GBP)
+Grade: Rumoured
+Intelligence ID: intelcms-2bxt7z
+
 3. Changan Auto-owned DEEPAL in talks for JV factory in Europe
+
 * Ford Motor and Mazda Motor in talks
 * Germany, Hungary, Italy, UK as potential venues
 
+DEEPAL, a Chinese electric vehicle maker owned by Changan Automobile, is in talks to set up a joint venture (JV) factory in Europe, three sources familiar with the situation said.
+
+The proposed JV factory generally requires total investment of up to CNY 10bn (USD 1.39bn), pending its planned annual output.
+
+Source: Proprietary Intelligence
+Size: > 60m (GBP)
+Grade: Strong evidence
+Intelligence ID: intelcms-hs3xjn
+
 Computer software
+
 8. Adarga seeks GBP 6m-GBP 8m in new funding – report
+
 * Previous USD 20m investment round led by BOKA Group
 
+Adarga is engaged in extensive discussions with a potential investor regarding a capital infusion ranging from GBP 6m to GBP 8m, Sky News reported.
+
+Source: Sky News
+Size: 5m-30m (GBP)
+Grade: Strong evidence
+Intelligence ID: intelcms-k9mrqp
+
 9. Enerim sponsor KLAR Partners preps sale via Macquarie
+
 * Mandate awarded last autumn, launch timing unclear
 * Sellside awaits better visibility on 2025 financials
 
-10. CoreWeave's USD 2bn of post-listing gains leads global IPO outperformance - Analysis
-* Post results surge huge boon for CoreWeave IPO investors
-* AI hyperscaler represents a quarter of all new listing gains globally"""
+KLAR Partners is working with Macquarie on preparations to sell Finnish software company Enerim, three sources familiar with the situation said.
+
+Source: Proprietary Intelligence
+Size: 30m-60m (GBP)
+Stake Value: 100%
+Grade: Strong evidence
+Intelligence ID: intelcms-2c6wxf"""
         
         email_input = st.text_area(
             "Paste M&A email content here:",
@@ -497,43 +607,69 @@ Computer software
             
             st.markdown("---")
             
-            # Display filtered deals
+            # Professional Intelligence Display
             if filtered_deals:
+                # Group deals by sector for professional presentation
+                deals_by_sector = {}
                 for deal in filtered_deals:
-                    with st.container():
+                    sector = deal['sector']
+                    if sector not in deals_by_sector:
+                        deals_by_sector[sector] = []
+                    deals_by_sector[sector].append(deal)
+                
+                # Display deals grouped by sector
+                for sector, sector_deals in deals_by_sector.items():
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); 
+                                color: white; padding: 1rem; border-radius: 10px; 
+                                margin: 1.5rem 0 1rem 0; font-size: 1.2rem; font-weight: 600;">
+                        📊 {sector.upper()}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    for deal in sector_deals:
+                        # Professional deal card matching your example
                         st.markdown(f"""
-                        <div class="deal-card">
-                            <div class="deal-header">{deal['title']}</div>
-                            <div class="deal-value">{deal['value'] if deal['value'] != 'TBD' else deal['size'] or 'Value TBD'}</div>
+                        <div style="background: white; padding: 1.5rem; border-radius: 10px; 
+                                   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); 
+                                   border-left: 4px solid #3498db; margin-bottom: 1.5rem;">
                             
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                                <div>
-                                    <div class="detail-label">Sector</div>
-                                    <div class="detail-value">{deal['sector']}</div>
-                                </div>
-                                <div>
-                                    <div class="detail-label">Geography</div>
-                                    <div class="detail-value">{deal['geography']}</div>
-                                </div>
-                                <div>
-                                    <div class="detail-label">Grade</div>
-                                    <div class="detail-value">{deal['grade'] or 'Pending'} {'<span class="alert-badge">HOT</span>' if deal['grade'] == 'Strong evidence' else ''}</div>
-                                </div>
-                                <div>
-                                    <div class="detail-label">Deal ID</div>
-                                    <div class="detail-value">#{deal['id']}</div>
-                                </div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #2c3e50; margin-bottom: 1rem;">
+                                {deal['id']}. {deal['title']}
                             </div>
                             
-                            {f'<div class="detail-label">Key Points</div><div class="detail-value">{"<br>".join([f"• {detail}" for detail in deal["details"][:3]])}</div>' if deal['details'] else ''}
+                            {f'<div style="margin: 1rem 0;">{"<br>".join([f"<span style=&#34;color: #7f8c8d;&#34;>• {detail}</span>" for detail in deal["details"][:5]])}</div>' if deal['details'] else ''}
                             
-                            {f'<div style="background: #ecf0f1; padding: 12px; border-radius: 8px; margin-top: 10px; font-size: 0.9rem; line-height: 1.5; color: #34495e;">{deal["summary"][:200]}{"..." if len(deal["summary"]) > 200 else ""}</div>' if deal['summary'] else ''}
+                            {f'<div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; line-height: 1.6; color: #2c3e50;">{deal["summary"]}</div>' if deal['summary'] else ''}
+                            
+                            <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #ecf0f1;">
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; font-size: 0.85rem;">
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Source:</span> {deal.get('source', 'Proprietary Intelligence')}</div>
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Size:</span> {deal['size']}</div>
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Value:</span> {deal['value'] if deal['value'] != 'TBD' else 'TBD'}</div>
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Stake Value:</span> {deal.get('stake_value', 'N/A')}</div>
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Grade:</span> 
+                                        <span style="background: {'#e74c3c' if deal['grade'] == 'Strong evidence' else '#f39c12' if deal['grade'] == 'Rumoured' else '#95a5a6'}; 
+                                                     color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">
+                                            {deal['grade']}
+                                        </span>
+                                    </div>
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Alert:</span> {deal.get('alert', 'M&A Alert')}</div>
+                                    <div><span style="color: #7f8c8d; font-weight: 600;">Intelligence ID:</span> {deal.get('intelligence_id', f'intel-{deal["id"]}')}</div>
+                                </div>
+                            </div>
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # Expandable details
-                        with st.expander("View Raw Details"):
-                            st.text(deal['original_text'])
+                        # Expandable detailed content
+                        if deal.get('full_content'):
+                            with st.expander(f"📄 Full Intelligence Report - Deal {deal['id']}"):
+                                st.markdown("### Detailed Analysis")
+                                st.write(deal['full_content'])
+                                
+                                st.markdown("---")
+                                st.markdown("### Raw Intelligence Data")
+                                st.text_area("Complete source material:", deal['original_text'], height=200, disabled=True)
             else:
                 st.info("No deals match your current filters. Try adjusting the filter criteria.")
         else:
