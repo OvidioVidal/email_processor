@@ -372,6 +372,132 @@ class DatabaseManager:
             'recent_activity': recent_activity,
             'value_distribution': value_distribution
         }
+    
+    def get_all_database_contents(self) -> Dict[str, pd.DataFrame]:
+        """Get all database contents for viewing"""
+        conn = sqlite3.connect(self.db_path)
+        
+        # Get all emails
+        emails_query = '''
+            SELECT 
+                id,
+                content_hash,
+                SUBSTR(raw_content, 1, 100) || '...' as content_preview,
+                processed_date,
+                total_deals,
+                total_sections,
+                total_monetary_values,
+                created_at
+            FROM emails
+            ORDER BY created_at DESC
+        '''
+        emails = pd.read_sql_query(emails_query, conn)
+        
+        # Get all deals
+        deals_query = '''
+            SELECT 
+                d.id,
+                d.email_id,
+                d.deal_number,
+                d.title,
+                d.sector,
+                d.geography,
+                d.value_text,
+                d.size_category,
+                d.grade,
+                d.source,
+                d.intelligence_id,
+                d.stake_value,
+                d.created_at
+            FROM deals d
+            ORDER BY d.created_at DESC
+        '''
+        deals = pd.read_sql_query(deals_query, conn)
+        
+        # Get all sections
+        sections_query = '''
+            SELECT 
+                s.id,
+                s.email_id,
+                s.section_name,
+                s.deal_count,
+                s.created_at
+            FROM sections s
+            ORDER BY s.created_at DESC
+        '''
+        sections = pd.read_sql_query(sections_query, conn)
+        
+        # Get all monetary values
+        monetary_query = '''
+            SELECT 
+                m.id,
+                m.email_id,
+                m.value_text,
+                m.currency,
+                m.amount,
+                m.unit,
+                m.created_at
+            FROM monetary_values m
+            ORDER BY m.created_at DESC
+        '''
+        monetary_values = pd.read_sql_query(monetary_query, conn)
+        
+        # Get all metadata
+        metadata_query = '''
+            SELECT 
+                m.id,
+                m.email_id,
+                m.key,
+                m.value,
+                m.created_at
+            FROM metadata m
+            ORDER BY m.created_at DESC
+        '''
+        metadata = pd.read_sql_query(metadata_query, conn)
+        
+        conn.close()
+        
+        return {
+            'emails': emails,
+            'deals': deals,
+            'sections': sections,
+            'monetary_values': monetary_values,
+            'metadata': metadata
+        }
+    
+    def get_email_details(self, email_id: int) -> Dict[str, Any]:
+        """Get detailed information for a specific email"""
+        conn = sqlite3.connect(self.db_path)
+        
+        # Get email info
+        email_query = 'SELECT * FROM emails WHERE id = ?'
+        email_info = pd.read_sql_query(email_query, conn, params=(email_id,))
+        
+        # Get related deals
+        deals_query = 'SELECT * FROM deals WHERE email_id = ?'
+        deals = pd.read_sql_query(deals_query, conn, params=(email_id,))
+        
+        # Get related sections
+        sections_query = 'SELECT * FROM sections WHERE email_id = ?'
+        sections = pd.read_sql_query(sections_query, conn, params=(email_id,))
+        
+        # Get related monetary values
+        monetary_query = 'SELECT * FROM monetary_values WHERE email_id = ?'
+        monetary_values = pd.read_sql_query(monetary_query, conn, params=(email_id,))
+        
+        # Get related metadata
+        metadata_query = 'SELECT * FROM metadata WHERE email_id = ?'
+        metadata = pd.read_sql_query(metadata_query, conn, params=(email_id,))
+        
+        conn.close()
+        
+        return {
+            'email_info': email_info,
+            'deals': deals,
+            'sections': sections,
+            'monetary_values': monetary_values,
+            'metadata': metadata
+        }
 
 class SmartTextProcessor:
     def __init__(self):
@@ -902,12 +1028,12 @@ Intelligence ID: intelcms-k9mrqp"""
         else:
             st.info("Ready to format your text. Paste content and click 'Format Text'")
     
-    # Additional features
+            # Additional features
     if 'formatted_text' in st.session_state:
         st.markdown("---")
         
         # Tabs for additional features
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Content Analysis", "📋 Professional Summary", "💾 Export Options", "📈 Market Insights"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Content Analysis", "📋 Professional Summary", "💾 Export Options", "📈 Market Insights", "🗃️ Database Viewer"])
         
         with tab1:
             st.subheader("📊 Content Analysis")
@@ -1072,6 +1198,144 @@ Intelligence ID: intelcms-k9mrqp"""
                     
                     else:
                         st.info("No historical data available yet. Process some emails first!")
+        
+        with tab5:
+            st.subheader("🗃️ Database Viewer")
+            st.info("View all data stored in the database from processed emails")
+            
+            # Load database contents
+            if st.button("🔄 Load Database Contents", use_container_width=True):
+                with st.spinner("Loading database contents..."):
+                    db_contents = st.session_state.db_manager.get_all_database_contents()
+                    st.session_state.db_contents = db_contents
+            
+            if 'db_contents' in st.session_state:
+                db_contents = st.session_state.db_contents
+                
+                # Create sub-tabs for different tables
+                db_tab1, db_tab2, db_tab3, db_tab4, db_tab5 = st.tabs(["📧 Emails", "🤝 Deals", "📁 Sections", "💰 Values", "📋 Metadata"])
+                
+                with db_tab1:
+                    st.markdown("### 📧 Processed Emails")
+                    if not db_contents['emails'].empty:
+                        st.dataframe(db_contents['emails'], use_container_width=True, hide_index=True)
+                        
+                        # Email details viewer
+                        st.markdown("#### 🔍 View Email Details")
+                        email_ids = db_contents['emails']['id'].tolist()
+                        selected_email_id = st.selectbox("Select Email ID to view details:", email_ids)
+                        
+                        if st.button("📖 View Full Email Details"):
+                            email_details = st.session_state.db_manager.get_email_details(selected_email_id)
+                            
+                            st.markdown("##### Email Information")
+                            st.dataframe(email_details['email_info'], use_container_width=True, hide_index=True)
+                            
+                            if not email_details['deals'].empty:
+                                st.markdown("##### Associated Deals")
+                                st.dataframe(email_details['deals'], use_container_width=True, hide_index=True)
+                            
+                            if not email_details['sections'].empty:
+                                st.markdown("##### Associated Sections")  
+                                st.dataframe(email_details['sections'], use_container_width=True, hide_index=True)
+                            
+                            if not email_details['monetary_values'].empty:
+                                st.markdown("##### Associated Monetary Values")
+                                st.dataframe(email_details['monetary_values'], use_container_width=True, hide_index=True)
+                            
+                            if not email_details['metadata'].empty:
+                                st.markdown("##### Associated Metadata")
+                                st.dataframe(email_details['metadata'], use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No emails found in database")
+                
+                with db_tab2:
+                    st.markdown("### 🤝 All Deals")
+                    if not db_contents['deals'].empty:
+                        st.dataframe(db_contents['deals'], use_container_width=True, hide_index=True)
+                        
+                        # Quick stats
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Deals", len(db_contents['deals']))
+                        with col2:
+                            top_sector = db_contents['deals']['sector'].mode().iloc[0] if len(db_contents['deals']) > 0 else 'N/A'
+                            st.metric("Top Sector", top_sector)
+                        with col3:
+                            top_geo = db_contents['deals']['geography'].mode().iloc[0] if len(db_contents['deals']) > 0 else 'N/A'
+                            st.metric("Top Geography", top_geo)
+                    else:
+                        st.info("No deals found in database")
+                
+                with db_tab3:
+                    st.markdown("### 📁 Sections")
+                    if not db_contents['sections'].empty:
+                        st.dataframe(db_contents['sections'], use_container_width=True, hide_index=True)
+                        
+                        # Section summary
+                        section_summary = db_contents['sections'].groupby('section_name')['deal_count'].sum().reset_index()
+                        section_summary = section_summary.sort_values('deal_count', ascending=False)
+                        
+                        st.markdown("#### Section Deal Counts")
+                        fig = px.bar(section_summary, x='section_name', y='deal_count', 
+                                   title="Total Deals by Section")
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No sections found in database")
+                
+                with db_tab4:
+                    st.markdown("### 💰 Monetary Values")
+                    if not db_contents['monetary_values'].empty:
+                        st.dataframe(db_contents['monetary_values'], use_container_width=True, hide_index=True)
+                        
+                        # Currency distribution
+                        currency_dist = db_contents['monetary_values']['currency'].value_counts().reset_index()
+                        currency_dist.columns = ['currency', 'count']
+                        
+                        if not currency_dist.empty:
+                            st.markdown("#### Currency Distribution")
+                            fig = px.pie(currency_dist, values='count', names='currency', 
+                                       title="Distribution of Currencies")
+                            st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No monetary values found in database")
+                
+                with db_tab5:
+                    st.markdown("### 📋 Metadata")
+                    if not db_contents['metadata'].empty:
+                        st.dataframe(db_contents['metadata'], use_container_width=True, hide_index=True)
+                        
+                        # Metadata keys distribution
+                        key_dist = db_contents['metadata']['key'].value_counts().reset_index()
+                        key_dist.columns = ['key', 'count']
+                        
+                        if not key_dist.empty:
+                            st.markdown("#### Metadata Keys Distribution")
+                            fig = px.bar(key_dist, x='key', y='count', 
+                                       title="Frequency of Metadata Keys")
+                            st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No metadata found in database")
+                
+                # Database statistics
+                st.markdown("---")
+                st.markdown("### 📊 Database Statistics")
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    st.metric("Total Emails", len(db_contents['emails']))
+                with col2:
+                    st.metric("Total Deals", len(db_contents['deals']))
+                with col3:
+                    st.metric("Total Sections", len(db_contents['sections']))
+                with col4:
+                    st.metric("Total Values", len(db_contents['monetary_values']))
+                with col5:
+                    st.metric("Total Metadata", len(db_contents['metadata']))
+            
+            else:
+                st.info("Click 'Load Database Contents' to view stored data")
 
 if __name__ == "__main__":
     main()
