@@ -999,27 +999,153 @@ Intelligence ID: intelcms-2c6wxf"""
             )
         
         with col2:
-            # Create a summary report
-            summary_report = f"""
-            # M&A Intelligence Report
+            # Enhanced comprehensive intelligence report
+            sector_counts = pd.Series(sectors).value_counts()
+            geo_counts = pd.Series(geos).value_counts()
             
-            Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            # Advanced analytics
+            high_confidence_deals = [d for d in deals if d['grade'] == 'Strong evidence']
+            cross_border_deals = [d for d in deals if d['geography'] not in ['UK', 'USA', 'GERMANY']]
+            large_deals = [d for d in deals if '> 60m' in d['size'] or 'billion' in d.get('value', '').lower()]
             
-            ## Summary Statistics
-            - Total Deals Processed: {len(st.session_state.deals)}
-            - Deals After Filtering: {len(deals)}
-            - Top Sector: {max(set(sectors), key=sectors.count) if sectors else 'N/A'}
-            - Geographic Spread: {len(set(geos))} regions
+            # Sector breakdown analysis
+            sector_analysis = {}
+            for sector in sector_counts.index:
+                sector_deals = [d for d in deals if d['sector'] == sector]
+                sector_analysis[sector] = {
+                    'count': len(sector_deals),
+                    'high_confidence': len([d for d in sector_deals if d['grade'] == 'Strong evidence']),
+                    'large_deals': len([d for d in sector_deals if '> 60m' in d['size']]),
+                    'top_deals': sector_deals[:3]
+                }
             
-            ## Key Deals
-            {chr(10).join([f"- {deal['title']} ({deal['value'] or deal['size'] or 'Value TBD'})" for deal in deals[:5]])}
-            """
+            summary_report = f"""# 📊 COMPREHENSIVE M&A INTELLIGENCE REPORT
+Generated: {datetime.now().strftime('%B %d, %Y at %H:%M:%S UTC')}
+
+## 🎯 EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Intelligence Overview:**
+- Total Transactions Identified: **{len(st.session_state.deals)}**
+- Deals After Filtering: **{len(deals)}**
+- High-Confidence Deals: **{len(high_confidence_deals)}** ({len(high_confidence_deals)/max(1,len(deals))*100:.1f}% of filtered)
+- Large-Scale Transactions: **{len(large_deals)}** (>£60M category)
+- Cross-Border Activity: **{len(cross_border_deals)}** transactions
+- Geographic Coverage: **{len(geo_counts)}** regions/countries
+- Sector Diversification: **{len(sector_counts)}** distinct sectors
+
+**Market Activity Assessment:**
+- Deal Flow Intensity: **{'High' if len(deals) > 15 else 'Moderate' if len(deals) > 8 else 'Standard'}**
+- Confidence Level: **{'High' if len(high_confidence_deals)/max(1,len(deals)) > 0.6 else 'Moderate' if len(high_confidence_deals)/max(1,len(deals)) > 0.3 else 'Developing'}**
+- Scale Distribution: **{'Large-Cap Focused' if len(large_deals)/max(1,len(deals)) > 0.4 else 'Mixed Portfolio' if len(large_deals)/max(1,len(deals)) > 0.2 else 'Mid-Market Focused'}**
+
+## 📈 SECTOR INTELLIGENCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Sector Distribution & Analysis:**
+{chr(10).join([f"""• **{sector}**: {count} deals ({count/len(deals)*100:.1f}% market share)
+  ├─ High-Confidence: {sector_analysis[sector]['high_confidence']}/{count} deals
+  ├─ Large-Scale: {sector_analysis[sector]['large_deals']}/{count} deals  
+  └─ Activity Level: {'High' if count > len(deals)*0.25 else 'Moderate' if count > len(deals)*0.15 else 'Standard'}""" for sector, count in sector_counts.head(5).items()])}
+
+**Top Sector Transactions:**
+{chr(10).join([f"""
+### {sector.upper()} SECTOR ({data['count']} deals)
+{chr(10).join([f"• **Deal #{deal['id']}**: {deal['title'][:80]}{'...' if len(deal['title']) > 80 else ''}"
+              f"  └─ Classification: {deal['grade']} | Size: {deal['size']} | Value: {deal['value'] if deal['value'] != 'TBD' else 'TBD'}" 
+              for deal in data['top_deals']])}
+""" for sector, data in list(sector_analysis.items())[:3]])}
+
+## 🌍 GEOGRAPHIC INTELLIGENCE DISTRIBUTION  
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Regional Activity Breakdown:**
+{chr(10).join([f"• **{geo}**: {count} transactions ({count/len(deals)*100:.1f}% of total)" for geo, count in geo_counts.items()])}
+
+**Cross-Border Intelligence:**
+- International deals: **{len(cross_border_deals)}** transactions ({len(cross_border_deals)/max(1,len(deals))*100:.1f}% of total)
+- Domestic focus: **{len(deals) - len(cross_border_deals)}** transactions
+- Geographic complexity: **{'High' if len(geo_counts) > 5 else 'Moderate' if len(geo_counts) > 3 else 'Concentrated'}**
+
+## 🎯 PRIORITY DEAL INTELLIGENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**HIGH-CONFIDENCE TRANSACTIONS ({len(high_confidence_deals)} deals):**
+{chr(10).join([f"""
+### Deal #{deal['id']}: {deal['title']}
+├─ **Sector**: {deal['sector']} | **Geography**: {deal['geography']}  
+├─ **Classification**: {deal['grade']} | **Size**: {deal['size']}
+├─ **Value**: {deal['value'] if deal['value'] != 'TBD' else 'Under Assessment'}
+├─ **Intelligence ID**: {deal.get('intelligence_id', f'intel-{deal["id"]}')}
+└─ **Key Intelligence**: {', '.join(deal['details'][:2]) if deal['details'] else 'Full analysis available'}
+""" for deal in high_confidence_deals[:5]])}
+
+{f"""**LARGE-SCALE TRANSACTIONS ({len(large_deals)} deals):**
+{chr(10).join([f"• **Deal #{deal['id']}**: {deal['title'][:60]}{'...' if len(deal['title']) > 60 else ''} - {deal['size']}" for deal in large_deals[:3]])}
+""" if large_deals else ""}
+
+**DEVELOPING OPPORTUNITIES:**
+{chr(10).join([f"""
+### Deal #{deal['id']}: {deal['title'][:70]}{'...' if len(deal['title']) > 70 else ''}
+├─ **Status**: {deal['grade']} | **Sector**: {deal['sector']} | **Size**: {deal['size']}
+└─ **Monitoring Priority**: {'High' if 'billion' in deal.get('value', '').lower() or '> 60m' in deal['size'] else 'Standard'}
+""" for deal in deals if deal['grade'] != 'Strong evidence'][:4])}
+
+## 📊 STRATEGIC MARKET INTELLIGENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Activity Themes Identified:**
+• **Consolidation Plays**: {len([d for d in deals if any(word in d['title'].lower() for word in ['acquire', 'acquisition', 'merge', 'consolidation'])])} transactions
+• **Technology Integration**: {len([d for d in deals if any(word in d['title'].lower() for word in ['digital', 'tech', 'software', 'ai', 'data'])])} deals  
+• **Geographic Expansion**: {len([d for d in deals if any(word in d['title'].lower() for word in ['expand', 'international', 'global', 'overseas'])])} deals
+• **Capital Markets Activity**: {len([d for d in deals if any(word in d['title'].lower() for word in ['ipo', 'listing', 'public', 'funding'])])} transactions
+• **Divestiture Activity**: {len([d for d in deals if any(word in d['title'].lower() for word in ['divest', 'sale', 'exit', 'disposal'])])} deals
+
+**Risk & Opportunity Assessment:**
+- **Market Concentration Risk**: {'High' if sector_counts.iloc[0] > len(deals)*0.4 else 'Moderate' if sector_counts.iloc[0] > len(deals)*0.25 else 'Diversified'}
+- **Execution Probability**: {'Strong' if len(high_confidence_deals)/max(1,len(deals)) > 0.5 else 'Mixed' if len(high_confidence_deals)/max(1,len(deals)) > 0.3 else 'Speculative'}  
+- **Scale Opportunity**: {'Large-Cap' if len(large_deals) > 3 else 'Mid-Market' if len(large_deals) > 1 else 'Growth-Stage'}
+- **Geographic Complexity**: {'Multi-Regional' if len(geo_counts) > 4 else 'Regional' if len(geo_counts) > 2 else 'Domestic'}
+
+## 🔍 ACTIONABLE INTELLIGENCE RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Immediate Action Items:**
+1. **Priority Monitoring**: Focus tracking on {len(high_confidence_deals)} high-confidence deals for immediate intelligence updates
+2. **Sector Deep-Dive**: {sector_counts.index[0]} sector dominance ({sector_counts.iloc[0]} deals) warrants competitive landscape analysis  
+3. **Geographic Strategy**: {geo_counts.index[0]} market concentration suggests regional expertise requirement
+4. **Scale Assessment**: {len(large_deals)} large-scale deals require enhanced due diligence capabilities
+
+**Strategic Intelligence Priorities:**
+- **Market Timing**: Current activity levels suggest {'favorable' if len(high_confidence_deals) > len(deals)*0.5 else 'mixed' if len(high_confidence_deals) > len(deals)*0.3 else 'cautious'} M&A environment
+- **Competitive Dynamics**: Sector concentration in {sector_counts.index[0]} indicates potential for competitive bidding scenarios  
+- **Regulatory Considerations**: {len(cross_border_deals)} cross-border deals require enhanced regulatory assessment protocols
+- **Capital Allocation**: Deal size distribution favors {'large-cap' if len(large_deals) > len(deals)*0.3 else 'mid-market'} investment strategies
+
+## 📋 COMPLETE TRANSACTION REGISTRY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join([f"""**DEAL #{deal['id']}** | {deal['title'][:70]}{'...' if len(deal['title']) > 70 else ''}
+├─ **Sector**: {deal['sector']} | **Geography**: {deal['geography']} | **Classification**: {deal['grade']}
+├─ **Financial**: Size {deal['size']} | Value {deal['value'] if deal['value'] != 'TBD' else 'TBD'} | Stake {deal.get('stake_value', 'N/A')}
+├─ **Intelligence**: ID {deal.get('intelligence_id', f'intel-{deal["id"]}')} | Source {deal.get('source', 'Proprietary')}
+└─ **Status**: {'🔥 Active Monitoring' if deal['grade'] == 'Strong evidence' else '👀 Development Tracking' if deal['grade'] == 'Rumoured' else '📋 Information Gathering'}
+""" for deal in deals])}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**REPORT CLASSIFICATION**: CONFIDENTIAL - INTERNAL USE ONLY
+**Intelligence Refresh**: Recommend update within 24-48 hours for active transactions  
+**Distribution**: M&A Team, Investment Committee, Senior Leadership (as appropriate)
+**Next Actions**: Detailed due diligence on high-confidence deals, sector competitive analysis
+**Contact**: M&A Intelligence Team for additional analysis, deep-dive reports, or strategic consultation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
             
             st.download_button(
-                label="Download Summary Report",
+                label="📊 Download Comprehensive Intelligence Report",
                 data=summary_report,
-                file_name=f"ma_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                mime="text/markdown"
+                file_name=f"ma_intelligence_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                mime="text/markdown",
+                help="Download detailed M&A intelligence analysis with strategic insights and actionable recommendations"
             )
 
 if __name__ == "__main__":
