@@ -6,6 +6,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import os
+import sqlite3
+import hashlib
 
 # Page configuration
 st.set_page_config(
@@ -83,8 +85,293 @@ st.markdown("""
         border-radius: 4px;
         font-weight: 600;
     }
+    
+    .database-info {
+        background: #e8f5e8;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #27ae60;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+class DatabaseManager:
+    def __init__(self, db_path="ma_intelligence.db"):
+        self.db_path = db_path
+        self.init_database()
+    
+    def init_database(self):
+        """Initialize the database with required tables"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Create emails table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_hash TEXT UNIQUE,
+                raw_content TEXT,
+                formatted_content TEXT,
+                processed_date DATETIME,
+                total_deals INTEGER,
+                total_sections INTEGER,
+                total_monetary_values INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Create deals table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS deals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                deal_number INTEGER,
+                title TEXT,
+                sector TEXT,
+                geography TEXT,
+                value_text TEXT,
+                size_category TEXT,
+                grade TEXT,
+                source TEXT,
+                intelligence_id TEXT,
+                stake_value TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id)
+            )
+        ''')
+        
+        # Create sections table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                section_name TEXT,
+                deal_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id)
+            )
+        ''')
+        
+        # Create monetary_values table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS monetary_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                value_text TEXT,
+                currency TEXT,
+                amount REAL,
+                unit TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id)
+            )
+        ''')
+        
+        # Create metadata table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                key TEXT,
+                value TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+    
+    def get_content_hash(self, content: str) -> str:
+        """Generate a hash for the content to avoid duplicates"""
+        return hashlib.md5(content.encode()).hexdigest()
+    
+    def save_email_data(self, raw_content: str, formatted_content: str, deals_data: List[Dict], key_info: Dict) -> int:
+        """Save email and all extracted data to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        content_hash = self.get_content_hash(raw_content)
+        
+        try:
+            # Check if email already exists
+            cursor.execute('SELECT id FROM emails WHERE content_hash = ?', (content_hash,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                st.warning("This email content has already been processed and saved.")
+                return existing[0]
+            
+            # Insert email record
+            cursor.execute('''
+                INSERT INTO emails (content_hash, raw_content, formatted_content, processed_date, 
+                                  total_deals, total_sections, total_monetary_values)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                content_hash,
+                raw_content,
+                formatted_content,
+                datetime.now().isoformat(),
+                len(key_info['deals']),
+                len(key_info['sections']),
+                len(set(key_info['monetary_values']))
+            ))
+            
+            email_id = cursor.lastrowid
+            
+            # Insert deals data
+            for deal in key_info['deals']:
+                # Extract additional info from deals_data if available
+                deal_info = next((d for d in deals_data if d.get('id') == str(deal['number'])), {})
+                
+                cursor.execute('''
+                    INSERT INTO deals (email_id, deal_number, title, sector, geography, 
+                                     value_text, size_category, grade, source, intelligence_id, stake_value)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    email_id,
+                    deal['number'],
+                    deal['title'],
+                    deal.get('section', 'Unknown'),
+                    deal_info.get('geography', 'Unknown'),
+                    deal_info.get('value', ''),
+                    deal_info.get('size', ''),
+                    deal_info.get('grade', ''),
+                    deal_info.get('source', ''),
+                    deal_info.get('intelligence_id', ''),
+                    deal_info.get('stake_value', '')
+                ))
+            
+            # Insert sections
+            section_counts = {}
+            for deal in key_info['deals']:
+                section = deal.get('section', 'Unknown')
+                section_counts[section] = section_counts.get(section, 0) + 1
+            
+            for section, count in section_counts.items():
+                cursor.execute('''
+                    INSERT INTO sections (email_id, section_name, deal_count)
+                    VALUES (?, ?, ?)
+                ''', (email_id, section, count))
+            
+            # Insert monetary values
+            for value in set(key_info['monetary_values']):
+                # Parse currency and amount
+                currency, amount, unit = self.parse_monetary_value(value)
+                cursor.execute('''
+                    INSERT INTO monetary_values (email_id, value_text, currency, amount, unit)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (email_id, value, currency, amount, unit))
+            
+            # Insert metadata
+            for key, value in key_info['metadata'].items():
+                cursor.execute('''
+                    INSERT INTO metadata (email_id, key, value)
+                    VALUES (?, ?, ?)
+                ''', (email_id, key, value))
+            
+            conn.commit()
+            st.success(f"✅ Email data saved to database! Email ID: {email_id}")
+            return email_id
+            
+        except Exception as e:
+            conn.rollback()
+            st.error(f"Error saving to database: {str(e)}")
+            return None
+        finally:
+            conn.close()
+    
+    def parse_monetary_value(self, value_text: str) -> tuple:
+        """Parse monetary value to extract currency, amount, and unit"""
+        # Extract currency
+        currency_match = re.search(r'(EUR|USD|GBP|CNY|\$|£|€)', value_text, re.IGNORECASE)
+        currency = currency_match.group(1) if currency_match else ''
+        
+        # Extract amount
+        amount_match = re.search(r'([\d,\.]+)', value_text)
+        amount = float(amount_match.group(1).replace(',', '')) if amount_match else 0.0
+        
+        # Extract unit
+        unit_match = re.search(r'(million|billion|bn|m|k)\b', value_text, re.IGNORECASE)
+        unit = unit_match.group(1) if unit_match else ''
+        
+        return currency, amount, unit
+    
+    def get_market_insights(self) -> Dict[str, Any]:
+        """Get market insights from stored data"""
+        conn = sqlite3.connect(self.db_path)
+        
+        # Get overview stats
+        overview_query = '''
+            SELECT 
+                COUNT(*) as total_emails,
+                SUM(total_deals) as total_deals,
+                AVG(total_deals) as avg_deals_per_email,
+                COUNT(DISTINCT DATE(created_at)) as active_days
+            FROM emails
+        '''
+        overview = pd.read_sql_query(overview_query, conn)
+        
+        # Get sector trends
+        sector_query = '''
+            SELECT 
+                sector,
+                COUNT(*) as deal_count,
+                DATE(created_at) as date
+            FROM deals
+            WHERE sector != 'Unknown'
+            GROUP BY sector, DATE(created_at)
+            ORDER BY date DESC
+        '''
+        sector_trends = pd.read_sql_query(sector_query, conn)
+        
+        # Get top sectors
+        top_sectors_query = '''
+            SELECT 
+                sector,
+                COUNT(*) as deal_count
+            FROM deals
+            WHERE sector != 'Unknown'
+            GROUP BY sector
+            ORDER BY deal_count DESC
+            LIMIT 10
+        '''
+        top_sectors = pd.read_sql_query(top_sectors_query, conn)
+        
+        # Get recent activity
+        recent_query = '''
+            SELECT 
+                e.processed_date,
+                e.total_deals,
+                e.total_sections
+            FROM emails e
+            ORDER BY e.created_at DESC
+            LIMIT 30
+        '''
+        recent_activity = pd.read_sql_query(recent_query, conn)
+        
+        # Get value distribution
+        value_query = '''
+            SELECT 
+                currency,
+                AVG(amount) as avg_amount,
+                COUNT(*) as count,
+                unit
+            FROM monetary_values
+            WHERE amount > 0
+            GROUP BY currency, unit
+        '''
+        value_distribution = pd.read_sql_query(value_query, conn)
+        
+        conn.close()
+        
+        return {
+            'overview': overview,
+            'sector_trends': sector_trends,
+            'top_sectors': top_sectors,
+            'recent_activity': recent_activity,
+            'value_distribution': value_distribution
+        }
 
 class SmartTextProcessor:
     def __init__(self):
@@ -213,6 +500,112 @@ class SmartTextProcessor:
             cleaned_lines.pop()
         
         return '\n'.join(cleaned_lines)
+
+    def parse_deals_from_content(self, content: str) -> List[Dict[str, Any]]:
+        """Parse deals with enhanced information extraction"""
+        deals = []
+        lines = content.split('\n')
+        current_deal = None
+        current_sector = "Other"
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check for sector header
+            if self._is_section_header(line):
+                current_sector = line.title()
+                continue
+                
+            # Check for deal header (numbered item)
+            deal_match = re.match(r'^(\d+)\.\s*(.+)', line)
+            if deal_match:
+                # Save previous deal
+                if current_deal:
+                    deals.append(current_deal)
+                
+                # Start new deal
+                deal_id = deal_match.group(1)
+                title = deal_match.group(2)
+                
+                current_deal = {
+                    'id': deal_id,
+                    'title': title,
+                    'sector': current_sector,
+                    'geography': self.extract_geography(title),
+                    'details': [],
+                    'value': self.extract_value(title),
+                    'grade': '',
+                    'size': '',
+                    'source': '',
+                    'intelligence_id': '',
+                    'stake_value': 'N/A',
+                    'original_text': title
+                }
+                
+                # Collect subsequent lines for this deal
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j].strip()
+                    if not next_line:
+                        j += 1
+                        continue
+                    
+                    # Stop if we hit the next numbered deal or sector
+                    if re.match(r'^\d+\.', next_line) or self._is_section_header(next_line):
+                        break
+                    
+                    current_deal['original_text'] += '\n' + next_line
+                    
+                    if next_line.startswith('*'):
+                        current_deal['details'].append(next_line[1:].strip())
+                    elif 'Size:' in next_line:
+                        current_deal['size'] = next_line.split('Size:')[1].strip()
+                    elif 'Grade:' in next_line:
+                        current_deal['grade'] = next_line.split('Grade:')[1].strip()
+                    elif 'Source:' in next_line:
+                        current_deal['source'] = next_line.split('Source:')[1].strip()
+                    elif 'Intelligence ID:' in next_line:
+                        current_deal['intelligence_id'] = next_line.split('Intelligence ID:')[1].strip()
+                    elif 'Stake Value:' in next_line:
+                        current_deal['stake_value'] = next_line.split('Stake Value:')[1].strip()
+                    elif self._contains_monetary_value(next_line):
+                        if not current_deal['value'] or current_deal['value'] == 'TBD':
+                            current_deal['value'] = self.extract_value(next_line)
+                    
+                    j += 1
+        
+        # Don't forget the last deal
+        if current_deal:
+            deals.append(current_deal)
+        
+        return deals
+
+    def extract_geography(self, title: str) -> str:
+        """Extract geography from deal title"""
+        lower_title = title.lower()
+        for geo, keywords in self.geo_keywords.items():
+            if any(keyword in lower_title for keyword in keywords):
+                return geo.upper()
+        return 'Global'
+
+    def extract_value(self, text: str) -> str:
+        """Extract monetary value from text"""
+        value_patterns = [
+            r'(EUR|USD|GBP|CNY)\s*([\d,\.]+)\s*([bmk]?)',
+            r'([\d,\.]+)\s*(EUR|USD|GBP|million|billion)',
+            r'\$\s*([\d,\.]+)\s*([bmk]?)',
+            r'£\s*([\d,\.]+)\s*([bmk]?)',
+            r'€\s*([\d,\.]+)\s*([bmk]?)'
+        ]
+        
+        for pattern in value_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(0)
+        
+        return 'TBD'
 
     def _is_section_header(self, line: str) -> bool:
         """Check if line is likely a section header"""
@@ -361,9 +754,11 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Initialize processor
+    # Initialize processor and database
     if 'processor' not in st.session_state:
         st.session_state.processor = SmartTextProcessor()
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
     
     # Main layout
     col1, col2 = st.columns([1, 1])
@@ -407,7 +802,7 @@ Intelligence ID: intelcms-k9mrqp"""
         text_input = st.text_area(
             "Paste your raw text here:",
             value=sample_data,
-            height=500,
+            height=400,
             help="Paste any raw text content. The system will automatically format it for better readability."
         )
         
@@ -418,6 +813,9 @@ Intelligence ID: intelcms-k9mrqp"""
         
         with col_b:
             clear_button = st.button("🗑️ Clear", use_container_width=True)
+        
+        # Save to database option
+        save_to_db = st.checkbox("💾 Save to database for market insights", value=True, help="Save processed data to database for trend analysis")
         
         if clear_button:
             st.rerun()
@@ -431,10 +829,34 @@ Intelligence ID: intelcms-k9mrqp"""
                 formatted_text = st.session_state.processor.format_raw_text(text_input)
                 email_formatted_text = st.session_state.processor.format_for_email(text_input)
                 
+                # Extract key information and deals
+                key_info = st.session_state.processor.extract_key_information(text_input)
+                deals_data = st.session_state.processor.parse_deals_from_content(text_input)
+                
                 # Store in session state
                 st.session_state.formatted_text = formatted_text
                 st.session_state.email_formatted_text = email_formatted_text
                 st.session_state.raw_input = text_input
+                st.session_state.key_info = key_info
+                st.session_state.deals_data = deals_data
+                
+                # Save to database if option is checked
+                if save_to_db:
+                    email_id = st.session_state.db_manager.save_email_data(
+                        text_input, 
+                        email_formatted_text, 
+                        deals_data, 
+                        key_info
+                    )
+                    
+                    if email_id:
+                        st.markdown(f"""
+                        <div class="database-info">
+                            <strong>✅ Data Saved to Database</strong><br>
+                            Email ID: {email_id} | Date: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 
+                            Deals: {len(key_info['deals'])} | Sections: {len(key_info['sections'])}
+                        </div>
+                        """, unsafe_allow_html=True)
         
         # Display formatted text if available
         if 'formatted_text' in st.session_state:
@@ -485,13 +907,13 @@ Intelligence ID: intelcms-k9mrqp"""
         st.markdown("---")
         
         # Tabs for additional features
-        tab1, tab2, tab3 = st.tabs(["📊 Content Analysis", "📋 Professional Summary", "💾 Export Options"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Content Analysis", "📋 Professional Summary", "💾 Export Options", "📈 Market Insights"])
         
         with tab1:
             st.subheader("📊 Content Analysis")
             
             # Extract and display key information
-            key_info = st.session_state.processor.extract_key_information(st.session_state.raw_input)
+            key_info = st.session_state.key_info
             
             col1, col2, col3, col4 = st.columns(4)
             
@@ -594,6 +1016,62 @@ Intelligence ID: intelcms-k9mrqp"""
                     mime="text/plain",
                     use_container_width=True
                 )
+        
+        with tab4:
+            st.subheader("📈 Market Insights")
+            
+            if st.button("🔄 Load Market Insights", use_container_width=True):
+                with st.spinner("Analyzing market data..."):
+                    insights = st.session_state.db_manager.get_market_insights()
+                    
+                    if not insights['overview'].empty:
+                        # Overview metrics
+                        overview = insights['overview'].iloc[0]
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Emails", int(overview['total_emails']))
+                        with col2:
+                            st.metric("Total Deals", int(overview['total_deals']))
+                        with col3:
+                            st.metric("Avg Deals/Email", f"{overview['avg_deals_per_email']:.1f}")
+                        with col4:
+                            st.metric("Active Days", int(overview['active_days']))
+                        
+                        # Sector insights
+                        if not insights['top_sectors'].empty:
+                            st.markdown("### 🏭 Top Sectors by Deal Volume")
+                            
+                            fig = px.bar(
+                                insights['top_sectors'].head(8), 
+                                x='deal_count', 
+                                y='sector',
+                                orientation='h',
+                                title="Most Active Sectors"
+                            )
+                            fig.update_layout(height=400)
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Recent activity
+                        if not insights['recent_activity'].empty:
+                            st.markdown("### 📅 Recent Activity Trends")
+                            insights['recent_activity']['processed_date'] = pd.to_datetime(insights['recent_activity']['processed_date'])
+                            
+                            fig = px.line(
+                                insights['recent_activity'].sort_values('processed_date'),
+                                x='processed_date',
+                                y='total_deals',
+                                title="Daily Deal Volume"
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Value distribution
+                        if not insights['value_distribution'].empty:
+                            st.markdown("### 💰 Value Distribution by Currency")
+                            st.dataframe(insights['value_distribution'], use_container_width=True)
+                    
+                    else:
+                        st.info("No historical data available yet. Process some emails first!")
 
 if __name__ == "__main__":
     main()
