@@ -121,113 +121,7 @@ class AIIntelligenceGenerator:
             response = self.client.chat.completions.create(
                 model="gpt-4",  # Use GPT-4 for better analysis
                 messages=[
-                    {"role": "system", "content": """Big 4 M&A Intelligence Report Generator
-Core Directive
-You are an elite M&A intelligence analyst operating at Big 4 consulting firm standards (McKinsey, BCG, Bain, Deloitte). Your reports must demonstrate the analytical rigor, strategic insight, and actionable intelligence that Fortune 500 executives and private equity partners rely on for billion-dollar decisions.
-
-Quality Standards Framework
-TIER 1: Data Integrity & Accuracy
-- Zero-tolerance for factual errors: Every data point must be verified and cross-referenced
-- Precise sector classification: Use standardized industry taxonomies (GICS, NAICS)
-- Accurate geographic attribution: Verify company headquarters vs. transaction locations
-- Proper deal categorization: Distinguish between M&A, IPOs, funding rounds, and market movements
-- Source attribution: All claims must be traceable to primary sources
-
-TIER 2: Financial Analysis Rigor
-- Transaction multiples: Calculate and benchmark EV/Revenue, EV/EBITDA where data permits
-- Market context: Position deal values against sector medians and historical trends
-- Valuation methodology: Explain premium/discount to market comparables
-- Financial performance metrics: Include revenue growth, profitability margins, cash generation
-- Deal structure analysis: Assess cash vs. equity, earnouts, retained ownership stakes
-
-TIER 3: Strategic Intelligence
-- Strategic rationale identification: Why are deals happening (consolidation, technology, geographic expansion)
-- Competitive dynamics: Market share implications, competitive response predictions
-- Regulatory drivers: Policy changes, compliance requirements, regulatory arbitrage
-- Technology disruption: Digital transformation impacts, AI adoption, automation trends
-- ESG considerations: Sustainability drivers, carbon reduction strategies, social impact
-
-TIER 4: Market Intelligence
-- Deal velocity trends: Compare current activity to 12-month rolling averages
-- Sector rotation patterns: Identify hot vs. cold sectors with supporting metrics
-- Geographic capital flows: Cross-border vs. domestic activity patterns
-- Sponsor behavior analysis: PE dry powder deployment, hold period trends, exit strategies
-- Public market correlation: How public valuations affect private deal activity
-
-Report Architecture Standards
-Executive Summary (McKinsey Style)
-- Lead with the "So What": Start with the most important strategic insight
-- Quantify everything: Use specific metrics, not vague qualifiers
-- Three key takeaways maximum: Focus on actionable insights only
-- Forward-looking perspective: What this means for market participants
-
-Market Analysis (BCG Framework)
-- Total Addressable Market sizing: Quantify market opportunity where relevant
-- Growth vectors identification: What's driving expansion/contraction
-- Competitive landscape mapping: Market share dynamics, new entrant threats
-- Value pool analysis: Where profit pools are shifting between players
-
-Deal Analysis (Bain Approach)
-- Strategic logic assessment: Rate deal rationale on strategic merit
-- Synergy quantification: Estimate revenue/cost synergies where applicable
-- Integration complexity: Assess cultural, operational, technology integration challenges
-- Value creation probability: High/Medium/Low probability of achieving stated objectives
-
-Sector Deep Dives (Deloitte Method)
-- Industry life cycle positioning: Growth, maturity, decline phase analysis
-- Regulatory environment: Current and anticipated policy impacts
-- Technology disruption timeline: 12-24 month outlook for sector transformation
-- Capital allocation priorities: Where strategic and financial buyers are focusing
-
-Analytical Frameworks to Apply
-Strategic Rationale Classification
-- Scale Economics: Market consolidation for cost synergies
-- Scope Economics: Adjacent market expansion, cross-selling
-- Speed to Market: Technology acquisition, geographic acceleration
-- Scarce Assets: Talent, IP, regulatory licenses, natural resources
-- Defensive: Competitive threats, disruption response
-
-Deal Quality Scoring (1-5 Scale)
-- Strategic Logic: Does the deal make strategic sense?
-- Financial Attractiveness: Valuation vs. fundamentals assessment
-- Execution Probability: Regulatory, financing, integration risks
-- Market Timing: Cyclical positioning, valuation environment
-- Management Track Record: Acquirer's historical M&A performance
-
-Risk Assessment Matrix
-- Regulatory Risk: Antitrust, foreign investment review, sector-specific
-- Integration Risk: Cultural fit, systems integration, talent retention
-- Market Risk: Economic cycle, sector headwinds, competitive response
-- Financial Risk: Leverage levels, cash flow stability, FX exposure
-
-Language & Tone Standards
-Precision Requirements
-- Use specific numbers: "€847M" not "approximately €850M"
-- Quantify trends: "15% increase YoY" not "significant growth"
-- Avoid hedge words: Replace "could potentially" with "likely will"
-- Be definitive: "This signals..." not "This might suggest..."
-
-Professional Terminology
-- Strategic buyers vs. financial sponsors (not "companies" vs. "PE firms")
-- Enterprise value vs. equity value (be precise about valuation metrics)
-- Multiple expansion vs. multiple compression (for valuation trends)
-- Bolt-on acquisition vs. platform investment (for PE strategy)
-
-Executive Communication Style
-- Lead with conclusions, support with evidence
-- Use pyramid principle: key message → supporting arguments → detailed evidence
-- Employ signposting: "Three factors drive this trend:"
-- End sections with implications: "This suggests..."
-
-Success Metrics
-Your report quality will be measured against:
-- Accuracy: Zero factual errors tolerance
-- Insight Density: Strategic insights per page ratio
-- Actionability: Specific, implementable recommendations
-- Differentiation: Unique perspectives not available in public sources
-- Executive Readiness: Could this brief a Fortune 500 CEO effectively?
-
-Remember: You are crafting intelligence that will influence billion-dollar investment decisions. Every word must add value, every insight must be defendable, and every recommendation must be actionable. Think like the analysts at KKR, Blackstone, and Apollo who use your reports to deploy capital."""},
+                    {"role": "system", "content": "You are a senior M&A analyst with 15+ years of experience in investment banking. Create professional, actionable intelligence reports."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=2000,
@@ -460,6 +354,107 @@ class MAProcessor:
             filtered_deals.append(deal)
         
         return filtered_deals
+    
+    def extract_links(self, content: str) -> List[str]:
+        """Extract all URLs from content"""
+        url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        links = re.findall(url_pattern, content)
+        return list(set(links))  # Remove duplicates
+    
+    def create_industry_summary(self, deals: List[Dict]) -> Dict[str, Any]:
+        """Create comprehensive industry summary from deals"""
+        sectors = [deal['sector'] for deal in deals]
+        sector_counts = {}
+        
+        for sector in sectors:
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        
+        # Sort by frequency
+        sorted_sectors = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)
+        
+        return {
+            'total_industries': len(sector_counts),
+            'top_industries': sorted_sectors[:5],
+            'industry_distribution': sector_counts,
+            'dominant_sector': sorted_sectors[0] if sorted_sectors else ('Unknown', 0)
+        }
+    
+    def create_firm_summary(self, deals: List[Dict], raw_content: str) -> str:
+        """Create professional, copyable summary for firm distribution"""
+        if not deals:
+            return "No deals processed yet."
+        
+        # Extract key metrics
+        total_deals = len(deals)
+        sectors = [deal['sector'] for deal in deals]
+        geos = [deal['geography'] for deal in deals]
+        
+        # Count occurrences
+        sector_counts = {}
+        geo_counts = {}
+        
+        for sector in sectors:
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        for geo in geos:
+            geo_counts[geo] = geo_counts.get(geo, 0) + 1
+        
+        # Get top items
+        top_sector = max(sector_counts.items(), key=lambda x: x[1]) if sector_counts else ('Unknown', 0)
+        top_geo = max(geo_counts.items(), key=lambda x: x[1]) if geo_counts else ('Unknown', 0)
+        
+        # Extract high-value deals
+        high_value_deals = []
+        for deal in deals:
+            if any(indicator in str(deal['value']).lower() for indicator in ['billion', 'b', '000m', '1,000']):
+                high_value_deals.append(deal)
+        
+        # Create professional summary
+        summary = f"""📊 M&A INTELLIGENCE BRIEF
+{datetime.now().strftime('%B %d, %Y')}
+
+EXECUTIVE SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Total Transactions Identified: {total_deals}
+• Dominant Sector: {top_sector[0]} ({top_sector[1]} deals)
+• Primary Geography: {top_geo[0]} ({top_geo[1]} transactions)
+• High-Value Deals (>$1B): {len(high_value_deals)}
+
+SECTOR BREAKDOWN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join([f'• {sector}: {count} deal{"s" if count > 1 else ""}' for sector, count in sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)])}
+
+GEOGRAPHIC DISTRIBUTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join([f'• {geo}: {count} transaction{"s" if count > 1 else ""}' for geo, count in sorted(geo_counts.items(), key=lambda x: x[1], reverse=True)])}
+
+KEY TRANSACTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join([f'• {deal["title"]} ({deal["value"] or deal["size"] or "Value TBD"})' for deal in deals[:8]])}
+
+{f"NOTABLE HIGH-VALUE DEALS{chr(10)}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{chr(10)}{chr(10).join([f'• {deal["title"]} ({deal["value"]})' for deal in high_value_deals[:5]])}" if high_value_deals else ""}
+
+MARKET INTELLIGENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Cross-border activity represents {len([d for d in deals if d['geography'] not in ['UK', 'USA']])} transactions
+• Technology sector consolidation shows {sector_counts.get('Technology', 0)} active deals
+• Healthcare/Biotech activity: {sector_counts.get('Healthcare', 0)} transactions identified
+
+RISK ASSESSMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Deal volume suggests {"high" if total_deals > 15 else "moderate" if total_deals > 8 else "low"} market activity
+• Sector concentration risk: {"High" if top_sector[1] > total_deals * 0.4 else "Moderate" if top_sector[1] > total_deals * 0.25 else "Low"}
+• Geographic diversification: {"Strong" if len(geo_counts) >= 4 else "Moderate" if len(geo_counts) >= 2 else "Limited"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Report generated by M&A Intelligence Processor
+Confidential and Proprietary"""
+        return summary.strip()
 
 def main():
     # Header
@@ -572,6 +567,7 @@ Computer software
                 # Store in session state
                 st.session_state.deals = deals
                 st.session_state.filtered_deals = filtered_deals
+                st.session_state.raw_content = email_input
         
         # Display results if available
         if 'filtered_deals' in st.session_state:
@@ -643,57 +639,139 @@ Computer software
         else:
             st.info("Ready to process M&A intelligence. Paste email content and click 'Process & Analyze'")
     
-    # AI Intelligence Report Section
+    # Additional Intelligence Sections
     if 'filtered_deals' in st.session_state and st.session_state.filtered_deals:
         st.markdown("---")
         
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.subheader("🤖 AI Intelligence Report")
-        with col2:
-            generate_ai_report = st.button("🚀 Generate AI Report", type="primary")
+        # Tabs for different intelligence views
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Industry Summary", "🔗 Links & Sources", "📋 Firm Summary", "🤖 AI Intelligence"])
         
-        if generate_ai_report:
-            if not openai_api_key:
-                st.error("⚠️ Please enter your OpenAI API key in the sidebar to generate AI reports")
+        with tab1:
+            st.subheader("📊 Industry & Sector Analysis")
+            
+            # Create industry summary
+            industry_summary = st.session_state.processor.create_industry_summary(st.session_state.filtered_deals)
+            
+            # Display industry metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Industries", industry_summary['total_industries'])
+            with col2:
+                st.metric("Dominant Sector", industry_summary['dominant_sector'][0])
+            with col3:
+                st.metric("Dominant Sector Deals", industry_summary['dominant_sector'][1])
+            
+            # Industry breakdown
+            st.markdown("### Industry Distribution")
+            for sector, count in industry_summary['top_industries']:
+                percentage = (count / len(st.session_state.filtered_deals)) * 100
+                st.markdown(f"""
+                <div style="background: white; padding: 1rem; border-radius: 8px; margin: 0.5rem 0; border-left: 4px solid #3498db;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 600; color: #2c3e50;">{sector}</span>
+                        <span style="color: #7f8c8d;">{count} deals ({percentage:.1f}%)</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with tab2:
+            st.subheader("🔗 Links & Sources")
+            
+            # Extract links from raw content
+            links = st.session_state.processor.extract_links(st.session_state.raw_content)
+            
+            if links:
+                st.markdown(f"**Found {len(links)} links in the source material:**")
+                for i, link in enumerate(links, 1):
+                    st.markdown(f"{i}. [{link}]({link})")
             else:
-                with st.spinner("🤖 AI is analyzing deals and generating intelligence report..."):
-                    # Prepare filter context for AI
-                    filter_context = {
-                        'sector': sector_filter,
-                        'geography': geo_filter, 
-                        'value': value_filter
-                    }
-                    
-                    # Generate AI report
-                    ai_report = st.session_state.ai_generator.generate_intelligence_report(
-                        st.session_state.filtered_deals,
-                        filter_context
-                    )
-                    
-                    # Store AI report in session state
-                    st.session_state.ai_report = ai_report
+                st.info("No links found in the source material.")
+            
+            # Raw content display
+            st.markdown("### Raw Source Material")
+            with st.expander("View Original Content"):
+                st.text_area("Raw Email Content", st.session_state.raw_content, height=300, disabled=True)
         
-        # Display AI report if available
-        if 'ai_report' in st.session_state:
+        with tab3:
+            st.subheader("📋 Professional Firm Summary")
+            
+            # Generate firm summary
+            firm_summary = st.session_state.processor.create_firm_summary(
+                st.session_state.filtered_deals, 
+                st.session_state.raw_content
+            )
+            
+            # Display in a professional format
             st.markdown("""
             <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
                         padding: 2rem; border-radius: 15px; 
-                        border-left: 5px solid #28a745; margin: 1rem 0;">
+                        border-left: 5px solid #2c3e50; margin: 1rem 0;">
             """, unsafe_allow_html=True)
             
-            st.markdown("### 📊 AI-Generated Intelligence Report")
-            st.markdown(st.session_state.ai_report)
+            st.markdown("### 📊 Ready-to-Share Intelligence Brief")
+            st.text_area("Copy and share with your firm:", firm_summary, height=600)
             
             st.markdown("</div>", unsafe_allow_html=True)
             
-            # Download AI report
+            # Download button
             st.download_button(
-                label="📥 Download AI Report",
-                data=st.session_state.ai_report,
-                file_name=f"ai_intelligence_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                mime="text/markdown"
+                label="📥 Download Firm Summary",
+                data=firm_summary,
+                file_name=f"firm_intelligence_brief_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain"
             )
+        
+        with tab4:
+            st.subheader("🤖 AI Intelligence Report")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("Generate AI-powered intelligence analysis")
+            with col2:
+                generate_ai_report = st.button("🚀 Generate AI Report", type="primary")
+            
+            if generate_ai_report:
+                if not openai_api_key:
+                    st.error("⚠️ Please enter your OpenAI API key in the sidebar to generate AI reports")
+                else:
+                    with st.spinner("🤖 AI is analyzing deals and generating intelligence report..."):
+                        # Prepare filter context for AI
+                        filter_context = {
+                            'sector': sector_filter,
+                            'geography': geo_filter, 
+                            'value': value_filter
+                        }
+                        
+                        # Generate AI report
+                        ai_report = st.session_state.ai_generator.generate_intelligence_report(
+                            st.session_state.filtered_deals,
+                            filter_context
+                        )
+                        
+                        # Store AI report in session state
+                        st.session_state.ai_report = ai_report
+            
+            # Display AI report if available
+            if 'ai_report' in st.session_state:
+                st.markdown("""
+                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                            padding: 2rem; border-radius: 15px; 
+                            border-left: 5px solid #28a745; margin: 1rem 0;">
+                """, unsafe_allow_html=True)
+                
+                st.markdown("### 📊 AI-Generated Intelligence Report")
+                st.markdown(st.session_state.ai_report)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+                # Download AI report
+                st.download_button(
+                    label="📥 Download AI Report",
+                    data=st.session_state.ai_report,
+                    file_name=f"ai_intelligence_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown"
+                )
+
     
     # Analytics section
     if 'filtered_deals' in st.session_state and st.session_state.filtered_deals:
