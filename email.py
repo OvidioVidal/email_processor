@@ -5,6 +5,9 @@ from typing import List, Dict, Any
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import openai
+import json
+import os
 
 # Page configuration
 st.set_page_config(
@@ -92,6 +95,113 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+class AIIntelligenceGenerator:
+    def __init__(self, api_key: str):
+        """Initialize AI Intelligence Generator with OpenAI API key"""
+        if api_key:
+            openai.api_key = api_key
+            self.client = openai.OpenAI(api_key=api_key)
+        else:
+            self.client = None
+    
+    def generate_intelligence_report(self, deals: List[Dict], filters: Dict) -> str:
+        """Generate AI-powered intelligence report from parsed deals"""
+        if not self.client:
+            return "⚠️ OpenAI API key required for AI intelligence reports"
+        
+        try:
+            # Prepare deal data for AI analysis
+            deal_summary = self._prepare_deal_data(deals)
+            
+            # Create detailed prompt for intelligence report
+            prompt = self._create_intelligence_prompt(deal_summary, filters)
+            
+            # Generate report using OpenAI
+            response = self.client.chat.completions.create(
+                model="gpt-4",  # Use GPT-4 for better analysis
+                messages=[
+                    {"role": "system", "content": "You are a senior M&A analyst with 15+ years of experience in investment banking. Create professional, actionable intelligence reports."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=2000,
+                temperature=0.3  # Lower temperature for more consistent, professional output
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            return f"⚠️ Error generating AI report: {str(e)}"
+    
+    def _prepare_deal_data(self, deals: List[Dict]) -> str:
+        """Prepare deal data for AI analysis"""
+        deal_data = []
+        for deal in deals:
+            deal_info = {
+                'title': deal['title'],
+                'sector': deal['sector'], 
+                'geography': deal['geography'],
+                'value': deal['value'],
+                'grade': deal['grade'],
+                'size': deal['size'],
+                'key_points': deal['details'][:3]  # Top 3 key points
+            }
+            deal_data.append(deal_info)
+        
+        return json.dumps(deal_data, indent=2)
+    
+    def _create_intelligence_prompt(self, deal_data: str, filters: Dict) -> str:
+        """Create comprehensive prompt for intelligence report generation"""
+        return f"""
+        Analyze the following M&A deals and create a comprehensive intelligence report:
+
+        **DEAL DATA:**
+        {deal_data}
+
+        **ANALYSIS FILTERS APPLIED:**
+        - Sector Focus: {filters.get('sector', 'All Sectors')}
+        - Geography: {filters.get('geography', 'All Regions')}  
+        - Min Deal Value: {filters.get('value', 'Any Value')}
+
+        **REPORT REQUIREMENTS:**
+        Create a professional M&A intelligence report with the following sections:
+
+        1. **EXECUTIVE SUMMARY** (3-4 sentences)
+           - Key market trends and deal activity overview
+           - Most significant transactions highlighted
+
+        2. **SECTOR ANALYSIS** 
+           - Dominant sectors and activity levels
+           - Sector-specific trends and drivers
+           - Cross-sector consolidation patterns
+
+        3. **GEOGRAPHIC INSIGHTS**
+           - Regional deal concentration 
+           - Cross-border activity trends
+           - Key geographic drivers
+
+        4. **DEAL VALUE ASSESSMENT**
+           - Valuation trends and multiples insight
+           - Large vs mid-market activity
+           - Value creation opportunities
+
+        5. **KEY STRATEGIC THEMES**
+           - Consolidation patterns
+           - Technology/digital transformation deals
+           - Market expansion strategies
+
+        6. **ACTIONABLE RECOMMENDATIONS** 
+           - Investment opportunities 
+           - Sectors to watch
+           - Timing considerations
+
+        **STYLE GUIDELINES:**
+        - Professional, concise language
+        - Data-driven insights
+        - Actionable intelligence focus
+        - Use bullet points for clarity
+        - Include specific deal references where relevant
+        """
 
 class MAProcessor:
     def __init__(self):
@@ -261,6 +371,28 @@ def main():
     # Sidebar controls
     st.sidebar.header("🔧 Analysis Controls")
     
+    # AI Configuration Section
+    st.sidebar.markdown("---")
+    st.sidebar.header("🤖 AI Intelligence")
+    
+    # OpenAI API Key input - check environment variable first
+    env_api_key = os.getenv("OPENAI_API_KEY")
+    if env_api_key:
+        openai_api_key = env_api_key
+        st.sidebar.success("✅ OpenAI API key loaded from environment")
+    else:
+        openai_api_key = st.sidebar.text_input(
+            "OpenAI API Key", 
+            type="password",
+            help="Enter your OpenAI API key to enable AI-powered intelligence reports"
+        )
+    
+    # Initialize AI generator
+    if 'ai_generator' not in st.session_state or openai_api_key:
+        st.session_state.ai_generator = AIIntelligenceGenerator(openai_api_key)
+    
+    st.sidebar.markdown("---")
+    
     sector_filter = st.sidebar.selectbox(
         "Sector Focus",
         ['All Sectors', 'Automotive', 'Technology', 'Financial', 'Industrial', 
@@ -404,6 +536,58 @@ Computer software
                 st.info("No deals match your current filters. Try adjusting the filter criteria.")
         else:
             st.info("Ready to process M&A intelligence. Paste email content and click 'Process & Analyze'")
+    
+    # AI Intelligence Report Section
+    if 'filtered_deals' in st.session_state and st.session_state.filtered_deals:
+        st.markdown("---")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader("🤖 AI Intelligence Report")
+        with col2:
+            generate_ai_report = st.button("🚀 Generate AI Report", type="primary")
+        
+        if generate_ai_report:
+            if not openai_api_key:
+                st.error("⚠️ Please enter your OpenAI API key in the sidebar to generate AI reports")
+            else:
+                with st.spinner("🤖 AI is analyzing deals and generating intelligence report..."):
+                    # Prepare filter context for AI
+                    filter_context = {
+                        'sector': sector_filter,
+                        'geography': geo_filter, 
+                        'value': value_filter
+                    }
+                    
+                    # Generate AI report
+                    ai_report = st.session_state.ai_generator.generate_intelligence_report(
+                        st.session_state.filtered_deals,
+                        filter_context
+                    )
+                    
+                    # Store AI report in session state
+                    st.session_state.ai_report = ai_report
+        
+        # Display AI report if available
+        if 'ai_report' in st.session_state:
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+                        padding: 2rem; border-radius: 15px; 
+                        border-left: 5px solid #28a745; margin: 1rem 0;">
+            """, unsafe_allow_html=True)
+            
+            st.markdown("### 📊 AI-Generated Intelligence Report")
+            st.markdown(st.session_state.ai_report)
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Download AI report
+            st.download_button(
+                label="📥 Download AI Report",
+                data=st.session_state.ai_report,
+                file_name=f"ai_intelligence_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                mime="text/markdown"
+            )
     
     # Analytics section
     if 'filtered_deals' in st.session_state and st.session_state.filtered_deals:
