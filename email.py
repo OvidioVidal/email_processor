@@ -512,6 +512,83 @@ class DatabaseManager:
             'monetary_values': monetary_values,
             'metadata': metadata
         }
+    
+    def delete_email(self, email_id: int) -> bool:
+        """Delete an email and all its associated data"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Delete associated data first (foreign key constraints)
+            cursor.execute('DELETE FROM deals WHERE email_id = ?', (email_id,))
+            cursor.execute('DELETE FROM sections WHERE email_id = ?', (email_id,))
+            cursor.execute('DELETE FROM monetary_values WHERE email_id = ?', (email_id,))
+            cursor.execute('DELETE FROM metadata WHERE email_id = ?', (email_id,))
+            
+            # Delete the email
+            cursor.execute('DELETE FROM emails WHERE id = ?', (email_id,))
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            st.error(f"Error deleting email: {str(e)}")
+            return False
+        finally:
+            conn.close()
+    
+    def delete_deal(self, deal_id: int) -> bool:
+        """Delete a specific deal"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('DELETE FROM deals WHERE id = ?', (deal_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            st.error(f"Error deleting deal: {str(e)}")
+            return False
+        finally:
+            conn.close()
+    
+    def delete_all_data(self) -> bool:
+        """Delete all data from the database (nuclear option)"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Delete all data from all tables
+            cursor.execute('DELETE FROM deals')
+            cursor.execute('DELETE FROM sections')
+            cursor.execute('DELETE FROM monetary_values')
+            cursor.execute('DELETE FROM metadata')
+            cursor.execute('DELETE FROM emails')
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            st.error(f"Error deleting all data: {str(e)}")
+            return False
+        finally:
+            conn.close()
+    
+    def get_database_stats(self) -> Dict[str, int]:
+        """Get database statistics"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        stats = {}
+        tables = ['emails', 'deals', 'sections', 'monetary_values', 'metadata']
+        
+        for table in tables:
+            cursor.execute(f'SELECT COUNT(*) FROM {table}')
+            stats[table] = cursor.fetchone()[0]
+        
+        conn.close()
+        return stats
 
 class SmartTextProcessor:
     def __init__(self):
@@ -1234,32 +1311,55 @@ Intelligence ID: intelcms-k9mrqp"""
                     if not db_contents['emails'].empty:
                         st.dataframe(db_contents['emails'], use_container_width=True, hide_index=True)
                         
-                        # Email details viewer
-                        st.markdown("#### 🔍 View Email Details")
-                        email_ids = db_contents['emails']['id'].tolist()
-                        selected_email_id = st.selectbox("Select Email ID to view details:", email_ids)
+                        # Email management controls
+                        st.markdown("#### 🔧 Email Management")
                         
-                        if st.button("📖 View Full Email Details"):
-                            email_details = st.session_state.db_manager.get_email_details(selected_email_id)
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("##### 🔍 View Email Details")
+                            email_ids = db_contents['emails']['id'].tolist()
+                            selected_email_id = st.selectbox("Select Email ID to view details:", email_ids, key="view_email_select")
                             
-                            st.markdown("##### Email Information")
-                            st.dataframe(email_details['email_info'], use_container_width=True, hide_index=True)
+                            if st.button("📖 View Full Email Details", key="view_email_btn"):
+                                email_details = st.session_state.db_manager.get_email_details(selected_email_id)
+                                
+                                st.markdown("##### Email Information")
+                                st.dataframe(email_details['email_info'], use_container_width=True, hide_index=True)
+                                
+                                if not email_details['deals'].empty:
+                                    st.markdown("##### Associated Deals")
+                                    st.dataframe(email_details['deals'], use_container_width=True, hide_index=True)
+                                
+                                if not email_details['sections'].empty:
+                                    st.markdown("##### Associated Sections")  
+                                    st.dataframe(email_details['sections'], use_container_width=True, hide_index=True)
+                                
+                                if not email_details['monetary_values'].empty:
+                                    st.markdown("##### Associated Monetary Values")
+                                    st.dataframe(email_details['monetary_values'], use_container_width=True, hide_index=True)
+                                
+                                if not email_details['metadata'].empty:
+                                    st.markdown("##### Associated Metadata")
+                                    st.dataframe(email_details['metadata'], use_container_width=True, hide_index=True)
+                        
+                        with col2:
+                            st.markdown("##### 🗑️ Delete Email")
+                            st.warning("⚠️ This will delete the email and ALL associated data!")
                             
-                            if not email_details['deals'].empty:
-                                st.markdown("##### Associated Deals")
-                                st.dataframe(email_details['deals'], use_container_width=True, hide_index=True)
+                            delete_email_id = st.selectbox("Select Email ID to delete:", email_ids, key="delete_email_select")
                             
-                            if not email_details['sections'].empty:
-                                st.markdown("##### Associated Sections")  
-                                st.dataframe(email_details['sections'], use_container_width=True, hide_index=True)
+                            # Confirmation checkbox
+                            confirm_delete = st.checkbox("I confirm I want to delete this email and all its data", key="confirm_delete_email")
                             
-                            if not email_details['monetary_values'].empty:
-                                st.markdown("##### Associated Monetary Values")
-                                st.dataframe(email_details['monetary_values'], use_container_width=True, hide_index=True)
-                            
-                            if not email_details['metadata'].empty:
-                                st.markdown("##### Associated Metadata")
-                                st.dataframe(email_details['metadata'], use_container_width=True, hide_index=True)
+                            if st.button("🗑️ Delete Email", type="secondary", disabled=not confirm_delete, key="delete_email_btn"):
+                                if st.session_state.db_manager.delete_email(delete_email_id):
+                                    st.success(f"✅ Email {delete_email_id} and all associated data deleted successfully!")
+                                    # Refresh the data
+                                    st.session_state.db_contents = st.session_state.db_manager.get_all_database_contents()
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to delete email")
                     else:
                         st.info("No emails found in database")
                 
@@ -1278,6 +1378,29 @@ Intelligence ID: intelcms-k9mrqp"""
                         with col3:
                             top_geo = db_contents['deals']['geography'].mode().iloc[0] if len(db_contents['deals']) > 0 else 'N/A'
                             st.metric("Top Geography", top_geo)
+                        
+                        # Deal deletion
+                        st.markdown("#### 🗑️ Delete Individual Deal")
+                        st.warning("⚠️ This will delete the selected deal only!")
+                        
+                        deal_ids = db_contents['deals']['id'].tolist()
+                        deal_titles = db_contents['deals']['title'].tolist()
+                        deal_options = [f"ID {deal_id}: {title[:50]}..." if len(title) > 50 else f"ID {deal_id}: {title}" 
+                                      for deal_id, title in zip(deal_ids, deal_titles)]
+                        
+                        selected_deal_option = st.selectbox("Select Deal to delete:", deal_options, key="delete_deal_select")
+                        selected_deal_id = int(selected_deal_option.split(":")[0].replace("ID ", ""))
+                        
+                        confirm_delete_deal = st.checkbox("I confirm I want to delete this deal", key="confirm_delete_deal")
+                        
+                        if st.button("🗑️ Delete Deal", type="secondary", disabled=not confirm_delete_deal, key="delete_deal_btn"):
+                            if st.session_state.db_manager.delete_deal(selected_deal_id):
+                                st.success(f"✅ Deal {selected_deal_id} deleted successfully!")
+                                # Refresh the data
+                                st.session_state.db_contents = st.session_state.db_manager.get_all_database_contents()
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to delete deal")
                     else:
                         st.info("No deals found in database")
                 
@@ -1347,6 +1470,40 @@ Intelligence ID: intelcms-k9mrqp"""
                     st.metric("Total Values", len(db_contents['monetary_values']))
                 with col5:
                     st.metric("Total Metadata", len(db_contents['metadata']))
+                
+                # Database Management
+                st.markdown("---")
+                st.markdown("### ⚙️ Database Management")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("#### 🔄 Refresh Database")
+                    if st.button("🔄 Refresh All Data", use_container_width=True):
+                        with st.spinner("Refreshing database contents..."):
+                            st.session_state.db_contents = st.session_state.db_manager.get_all_database_contents()
+                            st.success("✅ Database contents refreshed!")
+                            st.rerun()
+                
+                with col2:
+                    st.markdown("#### 🚨 Clear All Data")
+                    st.error("⚠️ DANGER ZONE: This will delete ALL data from the database!")
+                    
+                    # Double confirmation for nuclear option
+                    confirm_nuclear_1 = st.checkbox("I understand this will delete ALL emails and data", key="nuclear_confirm_1")
+                    confirm_nuclear_2 = st.checkbox("I really want to delete everything", key="nuclear_confirm_2")
+                    
+                    nuclear_enabled = confirm_nuclear_1 and confirm_nuclear_2
+                    
+                    if st.button("🚨 DELETE ALL DATA", type="secondary", disabled=not nuclear_enabled, key="nuclear_delete_btn"):
+                        if st.session_state.db_manager.delete_all_data():
+                            st.success("✅ All database data has been deleted!")
+                            # Clear session state
+                            if 'db_contents' in st.session_state:
+                                del st.session_state.db_contents
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to delete all data")
             
             else:
                 st.info("Click 'Load Database Contents' to view stored data")
