@@ -5,8 +5,6 @@ from typing import List, Dict, Any
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import openai
-import json
 import os
 
 # Page configuration
@@ -95,113 +93,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-class AIIntelligenceGenerator:
-    def __init__(self, api_key: str):
-        """Initialize AI Intelligence Generator with OpenAI API key"""
-        if api_key:
-            openai.api_key = api_key
-            self.client = openai.OpenAI(api_key=api_key)
-        else:
-            self.client = None
-    
-    def generate_intelligence_report(self, deals: List[Dict], filters: Dict) -> str:
-        """Generate AI-powered intelligence report from parsed deals"""
-        if not self.client:
-            return "⚠️ OpenAI API key required for AI intelligence reports"
-        
-        try:
-            # Prepare deal data for AI analysis
-            deal_summary = self._prepare_deal_data(deals)
-            
-            # Create detailed prompt for intelligence report
-            prompt = self._create_intelligence_prompt(deal_summary, filters)
-            
-            # Generate report using OpenAI
-            response = self.client.chat.completions.create(
-                model="gpt-4",  # Use GPT-4 for better analysis
-                messages=[
-                    {"role": "system", "content": "You are a senior M&A analyst with 15+ years of experience in investment banking. Create professional, actionable intelligence reports."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=2000,
-                temperature=0.3  # Lower temperature for more consistent, professional output
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            return f"⚠️ Error generating AI report: {str(e)}"
-    
-    def _prepare_deal_data(self, deals: List[Dict]) -> str:
-        """Prepare deal data for AI analysis"""
-        deal_data = []
-        for deal in deals:
-            deal_info = {
-                'title': deal['title'],
-                'sector': deal['sector'], 
-                'geography': deal['geography'],
-                'value': deal['value'],
-                'grade': deal['grade'],
-                'size': deal['size'],
-                'key_points': deal['details'][:3]  # Top 3 key points
-            }
-            deal_data.append(deal_info)
-        
-        return json.dumps(deal_data, indent=2)
-    
-    def _create_intelligence_prompt(self, deal_data: str, filters: Dict) -> str:
-        """Create comprehensive prompt for intelligence report generation"""
-        return f"""
-        Analyze the following M&A deals and create a comprehensive intelligence report:
-
-        **DEAL DATA:**
-        {deal_data}
-
-        **ANALYSIS FILTERS APPLIED:**
-        - Sector Focus: {filters.get('sector', 'All Sectors')}
-        - Geography: {filters.get('geography', 'All Regions')}  
-        - Min Deal Value: {filters.get('value', 'Any Value')}
-
-        **REPORT REQUIREMENTS:**
-        Create a professional M&A intelligence report with the following sections:
-
-        1. **EXECUTIVE SUMMARY** (3-4 sentences)
-           - Key market trends and deal activity overview
-           - Most significant transactions highlighted
-
-        2. **SECTOR ANALYSIS** 
-           - Dominant sectors and activity levels
-           - Sector-specific trends and drivers
-           - Cross-sector consolidation patterns
-
-        3. **GEOGRAPHIC INSIGHTS**
-           - Regional deal concentration 
-           - Cross-border activity trends
-           - Key geographic drivers
-
-        4. **DEAL VALUE ASSESSMENT**
-           - Valuation trends and multiples insight
-           - Large vs mid-market activity
-           - Value creation opportunities
-
-        5. **KEY STRATEGIC THEMES**
-           - Consolidation patterns
-           - Technology/digital transformation deals
-           - Market expansion strategies
-
-        6. **ACTIONABLE RECOMMENDATIONS** 
-           - Investment opportunities 
-           - Sectors to watch
-           - Timing considerations
-
-        **STYLE GUIDELINES:**
-        - Professional, concise language
-        - Data-driven insights
-        - Actionable intelligence focus
-        - Use bullet points for clarity
-        - Include specific deal references where relevant
-        """
 
 class MAProcessor:
     def __init__(self):
@@ -379,6 +270,37 @@ class MAProcessor:
             'dominant_sector': sorted_sectors[0] if sorted_sectors else ('Unknown', 0)
         }
     
+    def extract_all_industries_from_text(self, raw_content: str) -> Dict[str, int]:
+        """Extract ALL industry mentions from raw text, not just from parsed deals"""
+        all_mentions = {}
+        
+        # Convert raw text to lowercase for analysis
+        text_lower = raw_content.lower()
+        
+        # Count all keyword mentions across all sectors
+        for sector, keywords in self.sector_keywords.items():
+            mentions = 0
+            for keyword in keywords:
+                # Count keyword occurrences in text
+                mentions += text_lower.count(keyword.lower())
+            
+            if mentions > 0:
+                all_mentions[sector.replace('_', ' ').title()] = mentions
+        
+        # Also add explicit sector headers (like "Technology", "Automotive", etc.)
+        lines = raw_content.split('\n')
+        for line in lines:
+            line_clean = line.strip()
+            # Check if line is a sector header (single word, capitalized)
+            if len(line_clean.split()) == 1 and line_clean.isalpha() and line_clean[0].isupper():
+                sector_name = line_clean.title()
+                if sector_name not in all_mentions:
+                    all_mentions[sector_name] = 1
+                else:
+                    all_mentions[sector_name] += 1
+        
+        return all_mentions
+    
     def create_firm_summary(self, deals: List[Dict], raw_content: str) -> str:
         """Create professional, copyable summary for firm distribution"""
         if not deals:
@@ -471,28 +393,6 @@ def main():
     
     # Sidebar controls
     st.sidebar.header("🔧 Analysis Controls")
-    
-    # AI Configuration Section
-    st.sidebar.markdown("---")
-    st.sidebar.header("🤖 AI Intelligence")
-    
-    # OpenAI API Key input - check environment variable first
-    env_api_key = os.getenv("OPENAI_API_KEY")
-    if env_api_key:
-        openai_api_key = env_api_key
-        st.sidebar.success("✅ OpenAI API key loaded from environment")
-    else:
-        openai_api_key = st.sidebar.text_input(
-            "OpenAI API Key", 
-            type="password",
-            help="Enter your OpenAI API key to enable AI-powered intelligence reports"
-        )
-    
-    # Initialize AI generator
-    if 'ai_generator' not in st.session_state or openai_api_key:
-        st.session_state.ai_generator = AIIntelligenceGenerator(openai_api_key)
-    
-    st.sidebar.markdown("---")
     
     sector_filter = st.sidebar.selectbox(
         "Sector Focus",
@@ -644,35 +544,221 @@ Computer software
         st.markdown("---")
         
         # Tabs for different intelligence views
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Industry Summary", "🔗 Links & Sources", "📋 Firm Summary", "🤖 AI Intelligence"])
+        tab1, tab2, tab3 = st.tabs(["📊 Industry Analytics", "🔗 Links & Sources", "📋 Firm Summary"])
         
         with tab1:
-            st.subheader("📊 Industry & Sector Analysis")
+            st.subheader("📊 Comprehensive Industry Analytics")
             
             # Create industry summary
             industry_summary = st.session_state.processor.create_industry_summary(st.session_state.filtered_deals)
             
             # Display industry metrics
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Total Industries", industry_summary['total_industries'])
             with col2:
                 st.metric("Dominant Sector", industry_summary['dominant_sector'][0])
             with col3:
                 st.metric("Dominant Sector Deals", industry_summary['dominant_sector'][1])
+            with col4:
+                st.metric("Market Spread", f"{industry_summary['total_industries']} sectors")
             
-            # Industry breakdown
-            st.markdown("### Industry Distribution")
-            for sector, count in industry_summary['top_industries']:
-                percentage = (count / len(st.session_state.filtered_deals)) * 100
-                st.markdown(f"""
-                <div style="background: white; padding: 1rem; border-radius: 8px; margin: 0.5rem 0; border-left: 4px solid #3498db;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: 600; color: #2c3e50;">{sector}</span>
-                        <span style="color: #7f8c8d;">{count} deals ({percentage:.1f}%)</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown("---")
+            
+            # Enhanced visualizations
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Sector pie chart with enhanced styling
+                sectors = [deal['sector'] for deal in st.session_state.filtered_deals]
+                sector_counts = pd.Series(sectors).value_counts()
+                
+                colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
+                         '#DDA0DD', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE']
+                
+                fig_pie = px.pie(
+                    values=sector_counts.values,
+                    names=sector_counts.index,
+                    title="📊 Industry Distribution",
+                    color_discrete_sequence=colors
+                )
+                fig_pie.update_traces(
+                    textposition='inside', 
+                    textinfo='percent+label',
+                    hovertemplate='<b>%{label}</b><br>Deals: %{value}<br>Percentage: %{percent}<extra></extra>'
+                )
+                fig_pie.update_layout(
+                    height=400,
+                    font=dict(size=12),
+                    title_font_size=16
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            with col2:
+                # Horizontal bar chart for better readability
+                fig_bar = px.bar(
+                    x=sector_counts.values,
+                    y=sector_counts.index,
+                    orientation='h',
+                    title="📈 Deals by Industry",
+                    color=sector_counts.values,
+                    color_continuous_scale='Blues'
+                )
+                fig_bar.update_layout(
+                    height=400,
+                    xaxis_title="Number of Deals",
+                    yaxis_title="Industry Sector",
+                    title_font_size=16,
+                    coloraxis_showscale=False
+                )
+                fig_bar.update_traces(
+                    hovertemplate='<b>%{y}</b><br>Deals: %{x}<extra></extra>'
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            
+            # Detailed industry breakdown table
+            st.markdown("### 📋 Detailed Industry Breakdown")
+            
+            industry_df = pd.DataFrame([
+                {
+                    'Industry': sector,
+                    'Deal Count': count,
+                    'Market Share %': f"{(count / len(st.session_state.filtered_deals)) * 100:.1f}%",
+                    'Concentration': "High" if count > len(st.session_state.filtered_deals) * 0.3 else 
+                                   "Medium" if count > len(st.session_state.filtered_deals) * 0.15 else "Low"
+                }
+                for sector, count in industry_summary['top_industries']
+            ])
+            
+            st.dataframe(
+                industry_df,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Geographic vs Industry heatmap
+            st.markdown("### 🌍 Geographic-Industry Distribution")
+            
+            # Create cross-tabulation
+            deals_df = pd.DataFrame(st.session_state.filtered_deals)
+            cross_tab = pd.crosstab(deals_df['geography'], deals_df['sector'])
+            
+            fig_heatmap = px.imshow(
+                cross_tab.values,
+                labels=dict(x="Industry Sector", y="Geography", color="Deal Count"),
+                x=cross_tab.columns,
+                y=cross_tab.index,
+                color_continuous_scale='Blues',
+                title="🔥 Geographic-Industry Heat Map"
+            )
+            fig_heatmap.update_layout(height=300, title_font_size=16)
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+            
+            st.markdown("---")
+            
+            # ALL INDUSTRIES from raw text analysis
+            st.markdown("### 🏭 Complete Industry Landscape (Raw Text Analysis)")
+            st.markdown("*This shows ALL industry mentions in the source material, including context and keywords*")
+            
+            # Extract all industry mentions from raw text
+            all_industries = st.session_state.processor.extract_all_industries_from_text(st.session_state.raw_content)
+            
+            if all_industries:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Word cloud style visualization
+                    industries_df = pd.DataFrame(list(all_industries.items()), columns=['Industry', 'Mentions'])
+                    industries_df = industries_df.sort_values('Mentions', ascending=True)
+                    
+                    fig_mentions = px.bar(
+                        industries_df,
+                        x='Mentions',
+                        y='Industry',
+                        orientation='h',
+                        title="🔍 Industry Keyword Frequency",
+                        color='Mentions',
+                        color_continuous_scale='Reds',
+                        text='Mentions'
+                    )
+                    fig_mentions.update_traces(textposition='outside')
+                    fig_mentions.update_layout(
+                        height=400,
+                        xaxis_title="Keyword Mentions",
+                        yaxis_title="Industry Sector",
+                        title_font_size=16,
+                        coloraxis_showscale=False
+                    )
+                    st.plotly_chart(fig_mentions, use_container_width=True)
+                
+                with col2:
+                    # Sunburst chart for industry hierarchy
+                    industries_sorted = sorted(all_industries.items(), key=lambda x: x[1], reverse=True)
+                    
+                    # Create data for sunburst
+                    labels = ['All Industries'] + [industry for industry, _ in industries_sorted]
+                    parents = [''] + ['All Industries'] * len(industries_sorted)
+                    values = [sum(all_industries.values())] + [count for _, count in industries_sorted]
+                    
+                    fig_sunburst = go.Figure(go.Sunburst(
+                        labels=labels,
+                        parents=parents,
+                        values=values,
+                        branchvalues="total",
+                        hovertemplate='<b>%{label}</b><br>Mentions: %{value}<extra></extra>',
+                        maxdepth=2
+                    ))
+                    fig_sunburst.update_layout(
+                        title="🌟 Industry Mention Hierarchy",
+                        height=400,
+                        title_font_size=16
+                    )
+                    st.plotly_chart(fig_sunburst, use_container_width=True)
+                
+                # Comprehensive industry table
+                st.markdown("### 📊 Complete Industry Analysis Table")
+                
+                complete_industry_df = pd.DataFrame([
+                    {
+                        'Industry': industry,
+                        'Raw Mentions': count,
+                        'Deal Count': len([d for d in st.session_state.filtered_deals if d['sector'] == industry]),
+                        'Mention-to-Deal Ratio': f"{count / max(1, len([d for d in st.session_state.filtered_deals if d['sector'] == industry])):.1f}:1",
+                        'Market Presence': "High" if count > 5 else "Medium" if count > 2 else "Low"
+                    }
+                    for industry, count in sorted(all_industries.items(), key=lambda x: x[1], reverse=True)
+                ])
+                
+                st.dataframe(
+                    complete_industry_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Industry insights
+                st.markdown("### 💡 Industry Intelligence Insights")
+                
+                top_mentioned = max(all_industries.items(), key=lambda x: x[1])
+                total_mentions = sum(all_industries.values())
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Most Mentioned Industry", top_mentioned[0], f"{top_mentioned[1]} mentions")
+                with col2:
+                    st.metric("Total Industry References", total_mentions)
+                with col3:
+                    st.metric("Industry Diversity Score", len(all_industries))
+                
+                # Key insights
+                st.info(f"""
+                **🔍 Key Intelligence:**
+                • **{top_mentioned[0]}** dominates the narrative with {top_mentioned[1]} mentions
+                • **{len(all_industries)}** distinct industries identified in source material
+                • **{total_mentions}** total industry references suggest {'high' if total_mentions > 20 else 'moderate'} sector diversity
+                • Mention-to-deal ratios help identify emerging vs. established market activity
+                """)
+            else:
+                st.warning("No specific industry keywords detected in the raw text.")
         
         with tab2:
             st.subheader("🔗 Links & Sources")
@@ -720,57 +806,7 @@ Computer software
                 file_name=f"firm_intelligence_brief_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                 mime="text/plain"
             )
-        
-        with tab4:
-            st.subheader("🤖 AI Intelligence Report")
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown("Generate AI-powered intelligence analysis")
-            with col2:
-                generate_ai_report = st.button("🚀 Generate AI Report", type="primary")
-            
-            if generate_ai_report:
-                if not openai_api_key:
-                    st.error("⚠️ Please enter your OpenAI API key in the sidebar to generate AI reports")
-                else:
-                    with st.spinner("🤖 AI is analyzing deals and generating intelligence report..."):
-                        # Prepare filter context for AI
-                        filter_context = {
-                            'sector': sector_filter,
-                            'geography': geo_filter, 
-                            'value': value_filter
-                        }
-                        
-                        # Generate AI report
-                        ai_report = st.session_state.ai_generator.generate_intelligence_report(
-                            st.session_state.filtered_deals,
-                            filter_context
-                        )
-                        
-                        # Store AI report in session state
-                        st.session_state.ai_report = ai_report
-            
-            # Display AI report if available
-            if 'ai_report' in st.session_state:
-                st.markdown("""
-                <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
-                            padding: 2rem; border-radius: 15px; 
-                            border-left: 5px solid #28a745; margin: 1rem 0;">
-                """, unsafe_allow_html=True)
-                
-                st.markdown("### 📊 AI-Generated Intelligence Report")
-                st.markdown(st.session_state.ai_report)
-                
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-                # Download AI report
-                st.download_button(
-                    label="📥 Download AI Report",
-                    data=st.session_state.ai_report,
-                    file_name=f"ai_intelligence_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                    mime="text/markdown"
-                )
+
 
     
     # Analytics section
