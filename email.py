@@ -287,9 +287,23 @@ class DatabaseManager:
         currency_match = re.search(r'(EUR|USD|GBP|CNY|\$|£|€)', value_text, re.IGNORECASE)
         currency = currency_match.group(1) if currency_match else ''
         
-        # Extract amount
+        # Extract amount with improved handling
         amount_match = re.search(r'([\d,\.]+)', value_text)
-        amount = float(amount_match.group(1).replace(',', '')) if amount_match else 0.0
+        amount = 0.0
+        if amount_match:
+            try:
+                # Clean the amount string - remove trailing periods and commas
+                amount_str = amount_match.group(1).replace(',', '').rstrip('.')
+                # Handle cases where there might be multiple periods
+                if amount_str.count('.') > 1:
+                    # Keep only the last period as decimal separator
+                    parts = amount_str.split('.')
+                    amount_str = ''.join(parts[:-1]) + '.' + parts[-1] if len(parts) > 1 else parts[0]
+                
+                amount = float(amount_str) if amount_str and amount_str != '.' else 0.0
+            except (ValueError, AttributeError):
+                # If conversion fails, default to 0.0
+                amount = 0.0
         
         # Extract unit
         unit_match = re.search(r'(million|billion|bn|m|k)\b', value_text, re.IGNORECASE)
