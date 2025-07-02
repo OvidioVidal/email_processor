@@ -658,6 +658,35 @@ class SmartTextProcessor:
             'Services (other)'
         ]
         
+        # Mapping from common email section headers to priority sectors
+        self.section_to_priority_mapping = {
+            'AUTOMOTIVE': 'Industrial products and services',
+            'TECHNOLOGY': 'Computer software',
+            'TECH': 'Computer software',
+            'SOFTWARE': 'Computer software',
+            'FINANCIAL': 'Financial Services',
+            'FINANCE': 'Financial Services',
+            'BANKING': 'Financial Services',
+            'DEFENSE': 'Defense',
+            'DEFENCE': 'Defense',
+            'MILITARY': 'Defense',
+            'CONSUMER': 'Consumer: Other',
+            'RETAIL': 'Consumer: Retail',
+            'FOOD': 'Consumer: Foods',
+            'FOODS': 'Consumer: Foods',
+            'INDUSTRIAL': 'Industrial products and services',
+            'MANUFACTURING': 'Industrial products and services',
+            'ELECTRONICS': 'Industrial: Electronics',
+            'AUTOMATION': 'Industrial automation',
+            'SERVICES': 'Services (other)',
+            'CONSULTING': 'Services (other)',
+            'ENERGY': 'Industrial products and services',
+            'HEALTHCARE': 'Services (other)',
+            'REAL ESTATE': 'Services (other)',
+            'TELECOMMUNICATIONS': 'Computer software',
+            'TELECOM': 'Computer software'
+        }
+        
         self.sector_keywords = {
             'Computer software': ['software', 'tech', 'AI', 'digital', 'data', 'cyber', 'SaaS', 'IT', 'cloud', 'app', 'platform', 'programming', 'coding', 'database', 'analytics'],
             'Consumer: Foods': ['food', 'beverage', 'restaurant', 'cafe', 'catering', 'nutrition', 'organic', 'dairy', 'meat', 'snack', 'drink', 'culinary', 'grocery'],
@@ -791,6 +820,7 @@ class SmartTextProcessor:
         lines = content.split('\n')
         current_deal = None
         current_sector = "Other"
+        current_priority_sector = "Other"
         
         for i, line in enumerate(lines):
             line = line.strip()
@@ -800,6 +830,8 @@ class SmartTextProcessor:
             # Check for sector header
             if self._is_section_header(line):
                 current_sector = line.title()
+                # Map the section to priority sector immediately
+                current_priority_sector = self.map_section_to_priority(line)
                 continue
                 
             # Check for deal header (numbered item)
@@ -826,8 +858,9 @@ class SmartTextProcessor:
                     'intelligence_id': '',
                     'stake_value': 'N/A',
                     'original_text': title,
-                    'identified_sector': '',  # Will be filled after collecting all text
-                    'is_priority': False
+                    'identified_sector': current_priority_sector,  # Start with section mapping
+                    'is_priority': self.is_priority_sector(current_priority_sector),
+                    'section_mapped_sector': current_priority_sector  # Keep track of section mapping
                 }
                 
                 # Collect subsequent lines for this deal
@@ -864,16 +897,39 @@ class SmartTextProcessor:
         
         # Don't forget the last deal
         if current_deal:
-            # Identify sector based on full content
-            current_deal['identified_sector'] = self.identify_sector(current_deal['original_text'])
-            current_deal['is_priority'] = self.is_priority_sector(current_deal['identified_sector'])
+            # Enhance sector identification by combining section mapping with content analysis
+            content_identified_sector = self.identify_sector(current_deal['original_text'])
+            section_mapped_sector = current_deal.get('section_mapped_sector', 'Other')
+            
+            # Use section mapping if it's a priority sector, otherwise use content analysis
+            if self.is_priority_sector(section_mapped_sector):
+                final_sector = section_mapped_sector
+            elif self.is_priority_sector(content_identified_sector):
+                final_sector = content_identified_sector
+            else:
+                # If neither are priority, prefer content analysis
+                final_sector = content_identified_sector
+            
+            current_deal['identified_sector'] = final_sector
+            current_deal['is_priority'] = self.is_priority_sector(final_sector)
             deals.append(current_deal)
         
-        # Process all deals to identify sectors and priority status
+        # Process all deals to enhance sector identification
         for deal in deals:
-            if not deal.get('identified_sector'):
-                deal['identified_sector'] = self.identify_sector(deal['original_text'])
-                deal['is_priority'] = self.is_priority_sector(deal['identified_sector'])
+            content_identified_sector = self.identify_sector(deal['original_text'])
+            section_mapped_sector = deal.get('section_mapped_sector', 'Other')
+            
+            # Use section mapping if it's a priority sector, otherwise use content analysis
+            if self.is_priority_sector(section_mapped_sector):
+                final_sector = section_mapped_sector
+            elif self.is_priority_sector(content_identified_sector):
+                final_sector = content_identified_sector
+            else:
+                # If neither are priority, prefer content analysis
+                final_sector = content_identified_sector
+            
+            deal['identified_sector'] = final_sector
+            deal['is_priority'] = self.is_priority_sector(final_sector)
         
         return deals
 
@@ -887,9 +943,15 @@ class SmartTextProcessor:
     
     def identify_sector(self, text: str) -> str:
         """Identify sector based on content using priority sectors first"""
+        upper_text = text.upper()
         lower_text = text.lower()
         
-        # Check priority sectors first
+        # First, check if we can directly map from section headers
+        for section_header, priority_sector in self.section_to_priority_mapping.items():
+            if section_header in upper_text:
+                return priority_sector
+        
+        # Then check priority sectors using keyword matching
         sector_scores = {}
         for sector, keywords in self.sector_keywords.items():
             score = sum(1 for keyword in keywords if keyword in lower_text)
@@ -902,6 +964,22 @@ class SmartTextProcessor:
             return best_sector
         
         return 'Other'
+    
+    def map_section_to_priority(self, section_name: str) -> str:
+        """Map original email section to priority sector"""
+        section_upper = section_name.upper().strip()
+        
+        # Direct mapping first
+        if section_upper in self.section_to_priority_mapping:
+            return self.section_to_priority_mapping[section_upper]
+        
+        # Partial matching for more complex section names
+        for header, priority_sector in self.section_to_priority_mapping.items():
+            if header in section_upper or section_upper in header:
+                return priority_sector
+        
+        # If no mapping found, return the original section or 'Other'
+        return section_name if section_name != 'Unknown' else 'Other'
     
     def is_priority_sector(self, sector: str) -> bool:
         """Check if a sector is in the priority list"""
@@ -1127,6 +1205,27 @@ def main():
         st.markdown("### 🎯 Your Priority Sectors:")
         for i, sector in enumerate(priority_sectors, 1):
             st.markdown(f"{i}. **{sector}**")
+        
+        # Show section mappings
+        st.markdown("### 📧 Email Section Mappings")
+        st.markdown("Email headers like these will be mapped:")
+        
+        # Show some key mappings
+        key_mappings = {
+            'AUTOMOTIVE': 'Industrial products',
+            'TECHNOLOGY': 'Computer software', 
+            'FINANCIAL': 'Financial Services',
+            'DEFENSE': 'Defense',
+            'CONSUMER': 'Consumer sectors',
+            'INDUSTRIAL': 'Industrial products'
+        }
+        
+        for email_header, maps_to in key_mappings.items():
+            st.markdown(f"• **{email_header}** → {maps_to}")
+        
+        with st.expander("📋 View All Mappings"):
+            for header, priority in st.session_state.processor.section_to_priority_mapping.items():
+                st.markdown(f"• **{header}** → {priority}")
     
     # Main layout
     col1, col2 = st.columns([1, 1])
@@ -1374,9 +1473,11 @@ Intelligence ID: intelcms-k9mrqp"""
                         debug_data.append({
                             'Deal #': deal.get('id', ''),
                             'Original Section': deal.get('sector', 'Unknown'),
-                            'Identified Sector': deal.get('identified_sector', 'Not identified'),
+                            'Section Mapped': deal.get('section_mapped_sector', 'Not mapped'),
+                            'Content Analysis': st.session_state.processor.identify_sector(deal.get('original_text', '')),
+                            'Final Identified': deal.get('identified_sector', 'Not identified'),
                             'Is Priority': '🎯' if deal.get('is_priority', False) else '❌',
-                            'Title (First 50 chars)': deal.get('title', '')[:50] + '...' if len(deal.get('title', '')) > 50 else deal.get('title', '')
+                            'Title (First 30 chars)': deal.get('title', '')[:30] + '...' if len(deal.get('title', '')) > 30 else deal.get('title', '')
                         })
                     
                     debug_df = pd.DataFrame(debug_data)
@@ -1385,6 +1486,18 @@ Intelligence ID: intelcms-k9mrqp"""
                     st.markdown("#### Your Priority Sectors:")
                     for i, sector in enumerate(st.session_state.processor.priority_sectors, 1):
                         st.markdown(f"{i}. **{sector}**")
+                    
+                    st.markdown("#### Section Header Mappings:")
+                    st.markdown("These email section headers are automatically mapped to your priority sectors:")
+                    mapping_data = []
+                    for header, priority in st.session_state.processor.section_to_priority_mapping.items():
+                        mapping_data.append({
+                            'Email Section Header': header,
+                            'Maps to Priority Sector': priority
+                        })
+                    
+                    mapping_df = pd.DataFrame(mapping_data)
+                    st.dataframe(mapping_df, use_container_width=True, hide_index=True)
                 
                 # Original deals table (unfiltered)
                 if filter_mode != "Show All Sectors":
