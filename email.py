@@ -582,20 +582,54 @@ class SmartTextProcessor:
             return False
             
         words = line.split()
+        line_clean = line.strip()
+        
+        # Exclude common press release patterns that shouldn't be treated as section headers
+        press_release_patterns = [
+            r'press release',
+            r'announces',
+            r'reports',
+            r'declares',
+            r'completes',
+            r'enters into',
+            r'signs',
+            r'agrees to',
+            r'launches',
+            r'unveils',
+            r'introduces',
+            r'expands',
+            r'acquires',
+            r'merges with',
+            r'partners with'
+        ]
+        
+        # Check if line contains press release language
+        for pattern in press_release_patterns:
+            if re.search(pattern, line_clean, re.IGNORECASE):
+                return False
+        
+        # Exclude lines that are clearly content, not headers
+        if (re.search(r'\b(said|stated|reported|according to|sources|today|yesterday|this week|last month)\b', line_clean, re.IGNORECASE) or
+            re.search(r'\b(the company|the firm|the group|executives|management|ceo|cfo)\b', line_clean, re.IGNORECASE) or
+            re.search(r'\b(will|would|could|should|may|might|is expected|plans to)\b', line_clean, re.IGNORECASE)):
+            return False
         
         # More strict criteria for section headers
         return (len(words) <= 4 and  # Allow up to 4 words for headers like "Industrial: Electronics"
-                len(line) < 60 and    # Reasonable length limit
-                not line.startswith('*') and
-                not line.startswith('-') and 
-                not line.startswith('•') and
-                not re.match(r'^\d+\.', line) and  # Not a numbered item
-                not any(char in line for char in ['(', ')', '€', '$', '£']) and  # No monetary symbols
-                not line.lower().startswith('source:') and  # Not metadata
-                not line.lower().startswith('size:') and
-                not line.lower().startswith('grade:') and
-                not line.lower().startswith('intelligence') and
-                ':' not in line.lower() or line.count(':') == 1)  # Allow one colon for "Consumer: Foods" format
+                len(line_clean) < 60 and    # Reasonable length limit
+                not line_clean.startswith('*') and
+                not line_clean.startswith('-') and 
+                not line_clean.startswith('•') and
+                not re.match(r'^\d+\.', line_clean) and  # Not a numbered item
+                not any(char in line_clean for char in ['(', ')', '€', '$', '£']) and  # No monetary symbols
+                not line_clean.lower().startswith('source:') and  # Not metadata
+                not line_clean.lower().startswith('size:') and
+                not line_clean.lower().startswith('grade:') and
+                not line_clean.lower().startswith('intelligence') and
+                not line_clean.lower().startswith('alert:') and
+                (':' not in line_clean.lower() or line_clean.count(':') == 1) and  # Allow one colon for "Consumer: Foods" format
+                not re.search(r'\d{4}', line_clean) and  # No years
+                not re.search(r'[A-Z]{2,}\s+\d', line_clean))  # No currency codes with numbers
 
     def _contains_monetary_value(self, line: str) -> bool:
         """Check if line contains monetary values"""
@@ -685,12 +719,49 @@ class SmartTextProcessor:
         
         return info
 
+    def _detect_press_releases(self, content: str) -> List[str]:
+        """Detect press release content within the text"""
+        lines = content.split('\n')
+        press_releases = []
+        
+        press_release_patterns = [
+            r'announces',
+            r'reports',
+            r'declares',
+            r'completes',
+            r'enters into',
+            r'signs',
+            r'launches',
+            r'unveils',
+            r'introduces',
+            r'secures'
+        ]
+        
+        for line in lines:
+            line_stripped = line.strip()
+            if line_stripped and not self._is_section_header(line_stripped):
+                for pattern in press_release_patterns:
+                    if re.search(pattern, line_stripped, re.IGNORECASE):
+                        # Extract a meaningful preview of the press release
+                        preview = line_stripped[:80] + "..." if len(line_stripped) > 80 else line_stripped
+                        press_releases.append(preview)
+                        break
+        
+        return press_releases
+
     def _get_filtering_report(self, content: str) -> Dict[str, Any]:
         """Generate a report of what was filtered during processing"""
         lines = content.split('\n')
         all_sections = []
         allowed_sections = []
         filtered_sections = []
+        
+        # Detect press releases in original content
+        original_press_releases = self._detect_press_releases(content)
+        
+        # Detect press releases in filtered content
+        filtered_content = self._filter_content_by_category(content)
+        preserved_press_releases = self._detect_press_releases(filtered_content)
         
         for line in lines:
             line_stripped = line.strip()
@@ -706,7 +777,10 @@ class SmartTextProcessor:
             'allowed_sections': allowed_sections,
             'filtered_sections': filtered_sections,
             'sections_kept': len(allowed_sections),
-            'sections_removed': len(filtered_sections)
+            'sections_removed': len(filtered_sections),
+            'original_press_releases': len(original_press_releases),
+            'preserved_press_releases': len(preserved_press_releases),
+            'press_release_examples': preserved_press_releases[:3]  # Show first 3 as examples
         }
 
     def process_and_save(self, content: str) -> Dict[str, Any]:
@@ -871,6 +945,11 @@ def main():
         
         st.markdown("---")
         st.markdown("*Content from other categories will be automatically filtered out.*")
+        
+        st.markdown("### 📰 Press Release Handling")
+        st.markdown("✅ **Press releases within allowed categories are preserved**")
+        st.markdown("🚫 **Press releases in filtered categories are removed**")
+        st.markdown("📊 **System tracks and reports press release retention**")
     
     if page == "📝 Text Formatter":
         # Main layout
@@ -887,6 +966,9 @@ def main():
 * Investment of EUR 2.5 billion over 5 years
 * Expected to create 3,000 new jobs
 
+BMW announces partnership with battery manufacturer
+The German automaker said it will invest EUR 500 million in new battery technology development.
+
 Source: Reuters
 Size: 1bn-5bn (EUR)
 Grade: Strong evidence
@@ -897,6 +979,9 @@ Chemicals and materials
 * Target company located in North America
 * Deal value estimated at USD 1.2 billion
 * Would strengthen BASF's agricultural solutions division
+
+DowDuPont reports strong quarterly earnings
+The chemicals giant posted revenues of USD 2.1 billion, beating analyst expectations.
 
 Source: Chemical Week
 Size: 1bn-3bn (USD)
@@ -909,6 +994,9 @@ Financial Services
 * Multiple targets under evaluation
 * Investment range EUR 50m-150m
 
+JPMorgan Chase announces acquisition of UK-based fintech startup
+The bank will pay approximately USD 200 million for the digital payments company.
+
 Source: Financial Times
 Size: 50m-300m (EUR)
 Grade: Strong evidence
@@ -919,6 +1007,9 @@ Energy
 * Renewable energy expansion in Asia
 * Funding requirement USD 300m
 * IPO alternative being considered
+
+Shell declares dividend increase following strong energy sector performance
+The oil giant announced a 15% increase in quarterly dividends to shareholders.
 
 Source: Wall Street Journal
 Size: 200m-500m (USD)
@@ -931,16 +1022,36 @@ Computer software
 * Led by European venture capital firm
 * Total funding USD 75m
 
+Microsoft introduces new enterprise AI solutions
+The software company unveiled three new artificial intelligence products for business customers.
+
+Oracle reports cloud infrastructure revenue growth of 45%
+The database company's cloud division exceeded analyst expectations with strong quarterly performance.
+
 Source: TechCrunch
 Size: 50m-100m (USD)
 Grade: Confirmed
 
+Defense
+
+6. Lockheed Martin secures new defense contract
+* Multi-year agreement with European NATO ally
+* Contract value estimated at USD 1.8 billion
+* Focuses on advanced missile defense systems
+
+Source: Defense News
+Size: 1bn-3bn (USD)
+Grade: Confirmed
+
 Healthcare
 
-6. Medical device manufacturer exploring strategic options
+7. Medical device manufacturer exploring strategic options
 * Cardiac monitoring technology company
 * Private equity interest reported
 * Valuation around EUR 500m
+
+Pfizer announces breakthrough in diabetes treatment research
+The pharmaceutical company reported positive Phase III trial results for its new insulin therapy.
 
 Source: MedTech Dive
 Size: 300m-1bn (EUR)
@@ -1002,6 +1113,15 @@ Grade: Strong evidence"""
                                     st.write(f"  • {section}")
                             else:
                                 st.success("✨ **All sections were in allowed categories!**")
+                        
+                        # Press release information
+                        if filtering_report.get('original_press_releases', 0) > 0:
+                            st.info(f"📰 **Press Releases**: {filtering_report['preserved_press_releases']} of {filtering_report['original_press_releases']} preserved under allowed categories")
+                            
+                            if filtering_report.get('press_release_examples'):
+                                with st.expander("View Press Release Examples"):
+                                    for example in filtering_report['press_release_examples']:
+                                        st.write(f"• {example}")
                         
                         # Summary
                         if filtering_report['total_sections'] > 0:
