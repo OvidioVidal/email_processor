@@ -136,6 +136,8 @@ class DatabaseManager:
                 source TEXT,
                 intelligence_id TEXT,
                 stake_value TEXT,
+                identified_sector TEXT,
+                is_priority BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (email_id) REFERENCES emails (id)
             )
@@ -178,6 +180,17 @@ class DatabaseManager:
                 FOREIGN KEY (email_id) REFERENCES emails (id)
             )
         ''')
+        
+        # Migration: Add new columns to existing databases
+        try:
+            cursor.execute('ALTER TABLE deals ADD COLUMN identified_sector TEXT')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute('ALTER TABLE deals ADD COLUMN is_priority BOOLEAN DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         conn.commit()
         conn.close()
@@ -226,8 +239,9 @@ class DatabaseManager:
                 
                 cursor.execute('''
                     INSERT INTO deals (email_id, deal_number, title, sector, geography, 
-                                     value_text, size_category, grade, source, intelligence_id, stake_value)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     value_text, size_category, grade, source, intelligence_id, stake_value,
+                                     identified_sector, is_priority)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     email_id,
                     deal['number'],
@@ -239,7 +253,9 @@ class DatabaseManager:
                     deal_info.get('grade', ''),
                     deal_info.get('source', ''),
                     deal_info.get('intelligence_id', ''),
-                    deal_info.get('stake_value', '')
+                    deal_info.get('stake_value', ''),
+                    deal_info.get('identified_sector', 'Other'),
+                    deal_info.get('is_priority', False)
                 ))
             
             # Insert sections
@@ -422,6 +438,8 @@ class DatabaseManager:
                 d.source,
                 d.intelligence_id,
                 d.stake_value,
+                d.identified_sector,
+                d.is_priority,
                 d.created_at
             FROM deals d
             ORDER BY d.created_at DESC
@@ -611,9 +629,11 @@ class DatabaseManager:
                 d.source,
                 d.intelligence_id,
                 d.stake_value,
+                d.identified_sector,
+                d.is_priority,
                 d.created_at
             FROM deals d
-            WHERE d.sector IN ({placeholders})
+            WHERE d.identified_sector IN ({placeholders})
             ORDER BY d.created_at DESC
         '''
         
@@ -1346,6 +1366,26 @@ Intelligence ID: intelcms-k9mrqp"""
                 else:
                     st.warning("No deals found matching your current filter settings")
                 
+                # Debugging section
+                with st.expander("🔍 Sector Identification Debug"):
+                    st.markdown("#### How sectors were identified:")
+                    debug_data = []
+                    for deal in deals_data:
+                        debug_data.append({
+                            'Deal #': deal.get('id', ''),
+                            'Original Section': deal.get('sector', 'Unknown'),
+                            'Identified Sector': deal.get('identified_sector', 'Not identified'),
+                            'Is Priority': '🎯' if deal.get('is_priority', False) else '❌',
+                            'Title (First 50 chars)': deal.get('title', '')[:50] + '...' if len(deal.get('title', '')) > 50 else deal.get('title', '')
+                        })
+                    
+                    debug_df = pd.DataFrame(debug_data)
+                    st.dataframe(debug_df, use_container_width=True, hide_index=True)
+                    
+                    st.markdown("#### Your Priority Sectors:")
+                    for i, sector in enumerate(st.session_state.processor.priority_sectors, 1):
+                        st.markdown(f"{i}. **{sector}**")
+                
                 # Original deals table (unfiltered)
                 if filter_mode != "Show All Sectors":
                     with st.expander("📋 View All Deals (Unfiltered)"):
@@ -1572,10 +1612,21 @@ Intelligence ID: intelcms-k9mrqp"""
                         if filter_mode == "Show All Sectors":
                             filtered_deals_db = all_deals
                         elif filter_mode == "Priority Sectors Only":
-                            filtered_deals_db = all_deals[all_deals['sector'].isin(st.session_state.processor.priority_sectors)]
+                            # Use is_priority column if it exists, otherwise fall back to identified_sector
+                            if 'is_priority' in all_deals.columns:
+                                filtered_deals_db = all_deals[all_deals['is_priority'] == True]
+                            elif 'identified_sector' in all_deals.columns:
+                                filtered_deals_db = all_deals[all_deals['identified_sector'].isin(st.session_state.processor.priority_sectors)]
+                            else:
+                                # Legacy fallback for old data
+                                filtered_deals_db = all_deals[all_deals['sector'].isin(st.session_state.processor.priority_sectors)]
                         else:  # Custom selection
                             if selected_sectors:
-                                filtered_deals_db = all_deals[all_deals['sector'].isin(selected_sectors)]
+                                if 'identified_sector' in all_deals.columns:
+                                    filtered_deals_db = all_deals[all_deals['identified_sector'].isin(selected_sectors)]
+                                else:
+                                    # Legacy fallback
+                                    filtered_deals_db = all_deals[all_deals['sector'].isin(selected_sectors)]
                             else:
                                 filtered_deals_db = pd.DataFrame()  # Empty if no sectors selected
                         
@@ -1586,9 +1637,19 @@ Intelligence ID: intelcms-k9mrqp"""
                         if not filtered_deals_db.empty:
                             # Add priority indicators
                             display_deals = filtered_deals_db.copy()
-                            display_deals['Priority'] = display_deals['sector'].apply(
-                                lambda x: '🎯' if x in st.session_state.processor.priority_sectors else '📄'
-                            )
+                            if 'is_priority' in display_deals.columns:
+                                display_deals['Priority'] = display_deals['is_priority'].apply(
+                                    lambda x: '🎯' if x else '📄'
+                                )
+                            elif 'identified_sector' in display_deals.columns:
+                                display_deals['Priority'] = display_deals['identified_sector'].apply(
+                                    lambda x: '🎯' if x in st.session_state.processor.priority_sectors else '📄'
+                                )
+                            else:
+                                # Legacy fallback
+                                display_deals['Priority'] = display_deals['sector'].apply(
+                                    lambda x: '🎯' if x in st.session_state.processor.priority_sectors else '📄'
+                                )
                             
                             # Reorder columns to show priority first
                             cols = ['Priority'] + [col for col in display_deals.columns if col != 'Priority']
@@ -1601,7 +1662,12 @@ Intelligence ID: intelcms-k9mrqp"""
                             with col1:
                                 st.metric("Filtered Deals", len(filtered_deals_db))
                             with col2:
-                                priority_count = len(filtered_deals_db[filtered_deals_db['sector'].isin(st.session_state.processor.priority_sectors)])
+                                if 'is_priority' in filtered_deals_db.columns:
+                                    priority_count = len(filtered_deals_db[filtered_deals_db['is_priority'] == True])
+                                elif 'identified_sector' in filtered_deals_db.columns:
+                                    priority_count = len(filtered_deals_db[filtered_deals_db['identified_sector'].isin(st.session_state.processor.priority_sectors)])
+                                else:
+                                    priority_count = len(filtered_deals_db[filtered_deals_db['sector'].isin(st.session_state.processor.priority_sectors)])
                                 st.metric("Priority Deals", priority_count)
                             with col3:
                                 top_sector = filtered_deals_db['sector'].mode().iloc[0] if len(filtered_deals_db) > 0 else 'N/A'
@@ -1611,10 +1677,19 @@ Intelligence ID: intelcms-k9mrqp"""
                                 st.metric("Top Geography", top_geo)
                             
                             # Priority sector breakdown
-                            priority_deals_in_view = filtered_deals_db[filtered_deals_db['sector'].isin(st.session_state.processor.priority_sectors)]
+                            if 'is_priority' in filtered_deals_db.columns:
+                                priority_deals_in_view = filtered_deals_db[filtered_deals_db['is_priority'] == True]
+                                sector_col = 'identified_sector' if 'identified_sector' in priority_deals_in_view.columns else 'sector'
+                            elif 'identified_sector' in filtered_deals_db.columns:
+                                priority_deals_in_view = filtered_deals_db[filtered_deals_db['identified_sector'].isin(st.session_state.processor.priority_sectors)]
+                                sector_col = 'identified_sector'
+                            else:
+                                priority_deals_in_view = filtered_deals_db[filtered_deals_db['sector'].isin(st.session_state.processor.priority_sectors)]
+                                sector_col = 'sector'
+                            
                             if not priority_deals_in_view.empty:
                                 st.markdown("#### 🎯 Priority Sector Breakdown")
-                                sector_counts = priority_deals_in_view['sector'].value_counts()
+                                sector_counts = priority_deals_in_view[sector_col].value_counts()
                                 fig = px.bar(
                                     x=sector_counts.values,
                                     y=sector_counts.index,
