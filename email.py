@@ -1010,23 +1010,11 @@ class SmartTextProcessor:
         if filter_mode == "Show All Sectors":
             return content  # No filtering
         
-        # Get the sections to keep based on filter mode
+        # Determine which priority sectors to keep
         if filter_mode == "Priority Sectors Only":
-            sections_to_keep = set(self.priority_sectors)
-            # Also include mapped section headers that map to priority sectors
-            for header, priority in self.section_to_priority_mapping.items():
-                if priority in self.priority_sectors:
-                    sections_to_keep.add(header.title())
-                    sections_to_keep.add(header.upper())
-                    sections_to_keep.add(header.lower())
+            target_priority_sectors = set(self.priority_sectors)
         elif filter_mode == "Custom Selection" and selected_sectors:
-            sections_to_keep = set(selected_sectors)
-            # Also include mapped section headers
-            for header, priority in self.section_to_priority_mapping.items():
-                if priority in selected_sectors:
-                    sections_to_keep.add(header.title())
-                    sections_to_keep.add(header.upper())
-                    sections_to_keep.add(header.lower())
+            target_priority_sectors = set(selected_sectors)
         else:
             return content  # Fallback to no filtering
         
@@ -1035,21 +1023,24 @@ class SmartTextProcessor:
         current_section = None
         include_current_section = True
         
+        # Debug info - let's see what's happening
+        debug_info = []
+        
         for line in lines:
             line_stripped = line.strip()
             
             # Check if this is a section header
             if self._is_section_header(line_stripped):
                 current_section = line_stripped
-                # Check if we should include this section
+                
+                # Map the section header to a priority sector
                 section_mapped = self.map_section_to_priority(current_section)
-                include_current_section = (
-                    current_section in sections_to_keep or
-                    current_section.upper() in sections_to_keep or
-                    current_section.lower() in sections_to_keep or
-                    current_section.title() in sections_to_keep or
-                    section_mapped in sections_to_keep
-                )
+                
+                # Check if the mapped priority sector is in our target list
+                include_current_section = section_mapped in target_priority_sectors
+                
+                # Debug logging
+                debug_info.append(f"Section '{current_section}' -> Maps to '{section_mapped}' -> Include: {include_current_section}")
                 
                 if include_current_section:
                     filtered_lines.append(line)
@@ -1057,6 +1048,13 @@ class SmartTextProcessor:
                 # Include this line only if we're including the current section
                 if include_current_section:
                     filtered_lines.append(line)
+        
+        # Store debug info in session state for troubleshooting
+        try:
+            import streamlit as st
+            st.session_state.filter_debug = debug_info
+        except:
+            pass
         
         return '\n'.join(filtered_lines)
     
@@ -1375,6 +1373,28 @@ Intelligence ID: intelcms-k9mrqp"""
                     else:
                         selected_sectors = st.session_state.get('selected_sectors', [])
                         st.info(f"✅ Applying custom sector filter: showing {len(selected_sectors) if selected_sectors else 0} selected sectors")
+                    
+                    # Show debug information about filtering
+                    if 'filter_debug' in st.session_state and st.session_state.filter_debug:
+                        with st.expander("🔍 Filtering Debug Information"):
+                            st.markdown("**Section Filtering Results:**")
+                            for debug_line in st.session_state.filter_debug:
+                                st.markdown(f"• {debug_line}")
+                            
+                            st.markdown("**Your Target Priority Sectors:**")
+                            if filter_mode == "Priority Sectors Only":
+                                target_sectors = st.session_state.processor.priority_sectors
+                            else:
+                                target_sectors = st.session_state.get('selected_sectors', [])
+                            
+                            for sector in target_sectors:
+                                st.markdown(f"✅ {sector}")
+                            
+                            st.markdown("**Section Mapping Reference:**")
+                            for header, maps_to in st.session_state.processor.section_to_priority_mapping.items():
+                                is_target = maps_to in target_sectors
+                                status = "✅ KEEP" if is_target else "❌ FILTER OUT"
+                                st.markdown(f"• {header} → {maps_to} ({status})")
                 
                 # Format the text for both web and email
                 formatted_text = st.session_state.processor.format_raw_text(text_input)
