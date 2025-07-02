@@ -589,19 +589,66 @@ class DatabaseManager:
         
         conn.close()
         return stats
+    
+    def get_priority_sector_deals(self, priority_sectors: List[str]) -> pd.DataFrame:
+        """Get deals filtered by priority sectors"""
+        conn = sqlite3.connect(self.db_path)
+        
+        # Create placeholders for the IN clause
+        placeholders = ','.join(['?'] * len(priority_sectors))
+        
+        deals_query = f'''
+            SELECT 
+                d.id,
+                d.email_id,
+                d.deal_number,
+                d.title,
+                d.sector,
+                d.geography,
+                d.value_text,
+                d.size_category,
+                d.grade,
+                d.source,
+                d.intelligence_id,
+                d.stake_value,
+                d.created_at
+            FROM deals d
+            WHERE d.sector IN ({placeholders})
+            ORDER BY d.created_at DESC
+        '''
+        
+        deals = pd.read_sql_query(deals_query, conn, params=priority_sectors)
+        conn.close()
+        
+        return deals
 
 class SmartTextProcessor:
     def __init__(self):
+        # Priority sectors that are important to the user
+        self.priority_sectors = [
+            'Computer software',
+            'Consumer: Foods',
+            'Consumer: Other', 
+            'Consumer: Retail',
+            'Defense',
+            'Financial Services',
+            'Industrial automation',
+            'Industrial products and services',
+            'Industrial: Electronics',
+            'Services (other)'
+        ]
+        
         self.sector_keywords = {
-            'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
-            'technology': ['tech', 'software', 'AI', 'digital', 'data', 'cyber', 'SaaS', 'IT', 'cloud', 'app'],
-            'financial': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund', 'fintech'],
-            'industrial': ['construction', 'industrial', 'manufacturing', 'engineering', 'chemical', 'steel'],
-            'energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'solar', 'wind', 'nuclear'],
-            'healthcare': ['health', 'medical', 'pharma', 'biotech', 'hospital', 'drug', 'medicine'],
-            'consumer': ['retail', 'consumer', 'food', 'beauty', 'fashion', 'beverage', 'brand'],
-            'real_estate': ['real estate', 'property', 'reit', 'building', 'development'],
-            'agriculture': ['agriculture', 'farming', 'food', 'crop', 'livestock']
+            'Computer software': ['software', 'tech', 'AI', 'digital', 'data', 'cyber', 'SaaS', 'IT', 'cloud', 'app', 'platform', 'programming', 'coding', 'database', 'analytics'],
+            'Consumer: Foods': ['food', 'beverage', 'restaurant', 'cafe', 'catering', 'nutrition', 'organic', 'dairy', 'meat', 'snack', 'drink', 'culinary', 'grocery'],
+            'Consumer: Other': ['consumer', 'lifestyle', 'personal', 'household', 'beauty', 'cosmetic', 'fashion', 'apparel', 'entertainment', 'media', 'leisure'],
+            'Consumer: Retail': ['retail', 'store', 'shop', 'e-commerce', 'marketplace', 'outlet', 'chain', 'brand', 'merchandise', 'commerce', 'sales'],
+            'Defense': ['defense', 'defence', 'military', 'aerospace', 'security', 'surveillance', 'weapons', 'armament', 'naval', 'aviation', 'tactical'],
+            'Financial Services': ['bank', 'finance', 'financial', 'capital', 'investment', 'insurance', 'fund', 'fintech', 'trading', 'lending', 'credit', 'wealth', 'asset'],
+            'Industrial automation': ['automation', 'robotics', 'control', 'process', 'manufacturing', 'assembly', 'conveyor', 'sensor', 'plc', 'scada', 'industrial control'],
+            'Industrial products and services': ['industrial', 'manufacturing', 'engineering', 'construction', 'machinery', 'equipment', 'tools', 'materials', 'components', 'fabrication'],
+            'Industrial: Electronics': ['electronics', 'semiconductor', 'circuit', 'chip', 'component', 'pcb', 'embedded', 'microprocessor', 'sensor', 'electronic'],
+            'Services (other)': ['services', 'consulting', 'professional', 'advisory', 'support', 'maintenance', 'repair', 'logistics', 'transportation', 'outsourcing']
         }
         
         self.geo_keywords = {
@@ -758,7 +805,9 @@ class SmartTextProcessor:
                     'source': '',
                     'intelligence_id': '',
                     'stake_value': 'N/A',
-                    'original_text': title
+                    'original_text': title,
+                    'identified_sector': '',  # Will be filled after collecting all text
+                    'is_priority': False
                 }
                 
                 # Collect subsequent lines for this deal
@@ -795,7 +844,16 @@ class SmartTextProcessor:
         
         # Don't forget the last deal
         if current_deal:
+            # Identify sector based on full content
+            current_deal['identified_sector'] = self.identify_sector(current_deal['original_text'])
+            current_deal['is_priority'] = self.is_priority_sector(current_deal['identified_sector'])
             deals.append(current_deal)
+        
+        # Process all deals to identify sectors and priority status
+        for deal in deals:
+            if not deal.get('identified_sector'):
+                deal['identified_sector'] = self.identify_sector(deal['original_text'])
+                deal['is_priority'] = self.is_priority_sector(deal['identified_sector'])
         
         return deals
 
@@ -806,6 +864,32 @@ class SmartTextProcessor:
             if any(keyword in lower_title for keyword in keywords):
                 return geo.upper()
         return 'Global'
+    
+    def identify_sector(self, text: str) -> str:
+        """Identify sector based on content using priority sectors first"""
+        lower_text = text.lower()
+        
+        # Check priority sectors first
+        sector_scores = {}
+        for sector, keywords in self.sector_keywords.items():
+            score = sum(1 for keyword in keywords if keyword in lower_text)
+            if score > 0:
+                sector_scores[sector] = score
+        
+        if sector_scores:
+            # Return the sector with the highest keyword match score
+            best_sector = max(sector_scores, key=sector_scores.get)
+            return best_sector
+        
+        return 'Other'
+    
+    def is_priority_sector(self, sector: str) -> bool:
+        """Check if a sector is in the priority list"""
+        return sector in self.priority_sectors
+    
+    def filter_deals_by_priority_sectors(self, deals: List[Dict]) -> List[Dict]:
+        """Filter deals to only include priority sectors"""
+        return [deal for deal in deals if self.is_priority_sector(deal.get('sector', 'Other'))]
 
     def extract_value(self, text: str) -> str:
         """Extract monetary value from text"""
@@ -977,6 +1061,53 @@ def main():
     if 'db_manager' not in st.session_state:
         st.session_state.db_manager = DatabaseManager()
     
+    # Sidebar for filtering
+    with st.sidebar:
+        st.header("🎯 Sector Filtering")
+        st.markdown("### Priority Sectors")
+        
+        # Show priority sectors
+        priority_sectors = st.session_state.processor.priority_sectors
+        
+        # Sector filter options
+        filter_mode = st.radio(
+            "Filter Mode:",
+            ["Show All Sectors", "Priority Sectors Only", "Custom Selection"],
+            index=1,  # Default to priority sectors only
+            help="Choose how to filter deals and insights by sector"
+        )
+        
+        if filter_mode == "Custom Selection":
+            # Allow custom selection of sectors
+            all_sectors = priority_sectors + ['Other']
+            selected_sectors = st.multiselect(
+                "Select Sectors:",
+                all_sectors,
+                default=priority_sectors,
+                help="Choose which sectors to focus on"
+            )
+        elif filter_mode == "Priority Sectors Only":
+            selected_sectors = priority_sectors
+        else:
+            selected_sectors = None  # Show all
+        
+        # Store filter settings in session state
+        st.session_state.filter_mode = filter_mode
+        st.session_state.selected_sectors = selected_sectors
+        
+        # Display current filter status
+        if filter_mode == "Show All Sectors":
+            st.info("📊 Showing all sectors")
+        elif filter_mode == "Priority Sectors Only":
+            st.success(f"🎯 Filtering to {len(priority_sectors)} priority sectors")
+        else:
+            st.info(f"✅ Custom filter: {len(selected_sectors) if selected_sectors else 0} sectors")
+        
+        # Priority sectors list
+        st.markdown("### 🎯 Your Priority Sectors:")
+        for i, sector in enumerate(priority_sectors, 1):
+            st.markdown(f"{i}. **{sector}**")
+    
     # Main layout
     col1, col2 = st.columns([1, 1])
     
@@ -1119,7 +1250,7 @@ Intelligence ID: intelcms-k9mrqp"""
         else:
             st.info("Ready to format your text. Paste content and click 'Format Text'")
     
-            # Additional features
+    # Additional features
     if 'formatted_text' in st.session_state:
         st.markdown("---")
         
@@ -1153,8 +1284,73 @@ Intelligence ID: intelcms-k9mrqp"""
             
             if key_info['deals']:
                 st.markdown("### 🎯 Key Items/Deals")
-                deals_df = pd.DataFrame(key_info['deals'])
-                st.dataframe(deals_df, use_container_width=True, hide_index=True)
+                
+                # Analyze deal priorities
+                deals_data = st.session_state.deals_data
+                priority_deals = [deal for deal in deals_data if deal.get('is_priority', False)]
+                
+                # Show priority deal summary
+                if priority_deals:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Deals", len(deals_data))
+                    with col2:
+                        st.metric("Priority Deals", len(priority_deals), delta=f"{len(priority_deals)/len(deals_data)*100:.1f}%")
+                    with col3:
+                        priority_sectors_found = set(deal.get('identified_sector', 'Other') for deal in priority_deals)
+                        st.metric("Priority Sectors Found", len(priority_sectors_found))
+                
+                # Filter deals based on current filter setting
+                filter_mode = st.session_state.get('filter_mode', 'Priority Sectors Only')
+                selected_sectors = st.session_state.get('selected_sectors', st.session_state.processor.priority_sectors)
+                
+                if filter_mode == "Show All Sectors":
+                    filtered_deals = deals_data
+                elif filter_mode == "Priority Sectors Only":
+                    filtered_deals = priority_deals
+                else:  # Custom selection
+                    filtered_deals = [deal for deal in deals_data if deal.get('identified_sector', 'Other') in (selected_sectors or [])]
+                
+                if filtered_deals:
+                    st.success(f"🎯 Showing {len(filtered_deals)} deals matching your filter")
+                    
+                    # Enhanced deals dataframe with priority indicators
+                    enhanced_deals = []
+                    for deal in filtered_deals:
+                        enhanced_deal = {
+                            'Priority': '🎯' if deal.get('is_priority', False) else '📄',
+                            'Deal #': deal.get('id', ''),
+                            'Title': deal.get('title', '')[:80] + '...' if len(deal.get('title', '')) > 80 else deal.get('title', ''),
+                            'Section': deal.get('sector', 'Unknown'),
+                            'Identified Sector': deal.get('identified_sector', 'Other'),
+                            'Geography': deal.get('geography', 'Unknown'),
+                            'Value': deal.get('value', 'TBD')
+                        }
+                        enhanced_deals.append(enhanced_deal)
+                    
+                    enhanced_df = pd.DataFrame(enhanced_deals)
+                    st.dataframe(enhanced_df, use_container_width=True, hide_index=True)
+                    
+                    # Show sector breakdown for filtered deals
+                    if len(filtered_deals) > 1:
+                        sector_counts = pd.DataFrame(filtered_deals)['identified_sector'].value_counts()
+                        st.markdown("#### Sector Breakdown (Filtered)")
+                        fig = px.bar(
+                            x=sector_counts.values, 
+                            y=sector_counts.index,
+                            orientation='h',
+                            title="Deals by Identified Sector"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                else:
+                    st.warning("No deals found matching your current filter settings")
+                
+                # Original deals table (unfiltered)
+                if filter_mode != "Show All Sectors":
+                    with st.expander("📋 View All Deals (Unfiltered)"):
+                        deals_df = pd.DataFrame(key_info['deals'])
+                        st.dataframe(deals_df, use_container_width=True, hide_index=True)
             
             if key_info['monetary_values']:
                 st.markdown("### 💰 Monetary Values Found")
@@ -1366,18 +1562,75 @@ Intelligence ID: intelcms-k9mrqp"""
                 with db_tab2:
                     st.markdown("### 🤝 All Deals")
                     if not db_contents['deals'].empty:
-                        st.dataframe(db_contents['deals'], use_container_width=True, hide_index=True)
+                        # Apply filtering based on sidebar settings
+                        filter_mode = st.session_state.get('filter_mode', 'Priority Sectors Only')
+                        selected_sectors = st.session_state.get('selected_sectors', st.session_state.processor.priority_sectors)
                         
-                        # Quick stats
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total Deals", len(db_contents['deals']))
-                        with col2:
-                            top_sector = db_contents['deals']['sector'].mode().iloc[0] if len(db_contents['deals']) > 0 else 'N/A'
-                            st.metric("Top Sector", top_sector)
-                        with col3:
-                            top_geo = db_contents['deals']['geography'].mode().iloc[0] if len(db_contents['deals']) > 0 else 'N/A'
-                            st.metric("Top Geography", top_geo)
+                        # Filter deals based on sector
+                        all_deals = db_contents['deals']
+                        
+                        if filter_mode == "Show All Sectors":
+                            filtered_deals_db = all_deals
+                        elif filter_mode == "Priority Sectors Only":
+                            filtered_deals_db = all_deals[all_deals['sector'].isin(st.session_state.processor.priority_sectors)]
+                        else:  # Custom selection
+                            if selected_sectors:
+                                filtered_deals_db = all_deals[all_deals['sector'].isin(selected_sectors)]
+                            else:
+                                filtered_deals_db = pd.DataFrame()  # Empty if no sectors selected
+                        
+                        # Show filtering info
+                        if len(filtered_deals_db) != len(all_deals):
+                            st.info(f"🎯 Filtered view: {len(filtered_deals_db)} of {len(all_deals)} deals shown (based on sidebar filter)")
+                        
+                        if not filtered_deals_db.empty:
+                            # Add priority indicators
+                            display_deals = filtered_deals_db.copy()
+                            display_deals['Priority'] = display_deals['sector'].apply(
+                                lambda x: '🎯' if x in st.session_state.processor.priority_sectors else '📄'
+                            )
+                            
+                            # Reorder columns to show priority first
+                            cols = ['Priority'] + [col for col in display_deals.columns if col != 'Priority']
+                            display_deals = display_deals[cols]
+                            
+                            st.dataframe(display_deals, use_container_width=True, hide_index=True)
+                            
+                            # Quick stats for filtered deals
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Filtered Deals", len(filtered_deals_db))
+                            with col2:
+                                priority_count = len(filtered_deals_db[filtered_deals_db['sector'].isin(st.session_state.processor.priority_sectors)])
+                                st.metric("Priority Deals", priority_count)
+                            with col3:
+                                top_sector = filtered_deals_db['sector'].mode().iloc[0] if len(filtered_deals_db) > 0 else 'N/A'
+                                st.metric("Top Sector", top_sector)
+                            with col4:
+                                top_geo = filtered_deals_db['geography'].mode().iloc[0] if len(filtered_deals_db) > 0 else 'N/A'
+                                st.metric("Top Geography", top_geo)
+                            
+                            # Priority sector breakdown
+                            priority_deals_in_view = filtered_deals_db[filtered_deals_db['sector'].isin(st.session_state.processor.priority_sectors)]
+                            if not priority_deals_in_view.empty:
+                                st.markdown("#### 🎯 Priority Sector Breakdown")
+                                sector_counts = priority_deals_in_view['sector'].value_counts()
+                                fig = px.bar(
+                                    x=sector_counts.values,
+                                    y=sector_counts.index,
+                                    orientation='h',
+                                    title="Priority Deals by Sector",
+                                    color_discrete_sequence=['#2E8B57']  # Green color for priority
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                        
+                        else:
+                            st.warning("No deals found matching your current filter settings")
+                            
+                        # Show unfiltered data in expander if filtering is active
+                        if filter_mode != "Show All Sectors":
+                            with st.expander("📋 View All Deals (Unfiltered)"):
+                                st.dataframe(all_deals, use_container_width=True, hide_index=True)
                         
                         # Deal deletion
                         st.markdown("#### 🗑️ Delete Individual Deal")
