@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
@@ -431,20 +431,72 @@ class SmartTextProcessor:
         
         return False
 
-    def _filter_content_by_category(self, content: str) -> str:
-        """Filter content to only include allowed categories"""
+    def _extract_numbered_items_by_category(self, content: str) -> Dict[str, List[int]]:
+        """Extract which numbered items belong to which categories"""
         lines = content.split('\n')
-        filtered_lines = []
-        current_section = None
-        include_current_section = False  # Start with False - only include if explicitly allowed
+        category_to_numbers = {}
+        current_category = None
         
         for line in lines:
             line_stripped = line.strip()
+            if not line_stripped:
+                continue
+                
+            # Check if this is a section header
+            if self._is_section_header(line_stripped):
+                current_category = line_stripped
+                if current_category not in category_to_numbers:
+                    category_to_numbers[current_category] = []
+            
+            # Check if this is a numbered item
+            elif re.match(r'^\d+\.', line_stripped) and current_category:
+                # Extract the number
+                match = re.match(r'^(\d+)\.', line_stripped)
+                if match:
+                    item_number = int(match.group(1))
+                    category_to_numbers[current_category].append(item_number)
+        
+        return category_to_numbers
+
+    def _get_allowed_item_numbers(self, content: str) -> Set[int]:
+        """Get the numbers of items that belong to allowed categories"""
+        category_to_numbers = self._extract_numbered_items_by_category(content)
+        allowed_numbers = set()
+        
+        for category, numbers in category_to_numbers.items():
+            if self._is_allowed_category(category):
+                allowed_numbers.update(numbers)
+        
+        return allowed_numbers
+
+    def _filter_content_by_category(self, content: str) -> str:
+        """Filter content to only include allowed categories and their corresponding press releases"""
+        lines = content.split('\n')
+        filtered_lines = []
+        
+        # First pass: get which numbered items belong to allowed categories
+        allowed_numbers = self._get_allowed_item_numbers(content)
+        
+        current_section = None
+        include_current_section = False
+        in_detailed_section = False
+        current_item_number = None
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # Empty lines are preserved if we're in an allowed section
+            if not line_stripped:
+                if include_current_section or (in_detailed_section and current_item_number in allowed_numbers):
+                    filtered_lines.append(line)
+                continue
             
             # Check if this is a section header
             if self._is_section_header(line_stripped):
                 current_section = line_stripped
                 include_current_section = self._is_allowed_category(current_section)
+                in_detailed_section = False
+                current_item_number = None
                 
                 # Only add the section header if it's allowed
                 if include_current_section:
@@ -452,9 +504,33 @@ class SmartTextProcessor:
                     if filtered_lines and filtered_lines[-1].strip():
                         filtered_lines.append('')
                     filtered_lines.append(line)
+            
+            # Check if this is a numbered item (could be title or detailed section)
+            elif re.match(r'^\d+\.', line_stripped):
+                match = re.match(r'^(\d+)\.', line_stripped)
+                if match:
+                    item_number = int(match.group(1))
+                    current_item_number = item_number
+                    
+                    # If we're in the initial categorized list
+                    if current_section and include_current_section:
+                        filtered_lines.append(line)
+                        in_detailed_section = False
+                    
+                    # If this looks like a detailed press release section (longer text after number)
+                    elif item_number in allowed_numbers:
+                        # This is a detailed section for an allowed item
+                        in_detailed_section = True
+                        # Add spacing before detailed sections
+                        if filtered_lines and filtered_lines[-1].strip():
+                            filtered_lines.append('')
+                        filtered_lines.append(line)
+                        include_current_section = False  # Override section-based logic
+            
+            # Handle all other content
             else:
-                # Only add non-header lines if we're in an allowed section
-                if include_current_section:
+                # If we're in an allowed section OR we're in a detailed section for an allowed item
+                if include_current_section or (in_detailed_section and current_item_number in allowed_numbers):
                     filtered_lines.append(line)
         
         return '\n'.join(filtered_lines)
@@ -756,6 +832,14 @@ class SmartTextProcessor:
         allowed_sections = []
         filtered_sections = []
         
+        # Get category mappings
+        category_to_numbers = self._extract_numbered_items_by_category(content)
+        allowed_numbers = self._get_allowed_item_numbers(content)
+        
+        # Count total and allowed numbered items
+        total_numbered_items = sum(len(numbers) for numbers in category_to_numbers.values())
+        allowed_numbered_items = len(allowed_numbers)
+        
         # Detect press releases in original content
         original_press_releases = self._detect_press_releases(content)
         
@@ -778,9 +862,13 @@ class SmartTextProcessor:
             'filtered_sections': filtered_sections,
             'sections_kept': len(allowed_sections),
             'sections_removed': len(filtered_sections),
+            'total_numbered_items': total_numbered_items,
+            'allowed_numbered_items': allowed_numbered_items,
+            'filtered_numbered_items': total_numbered_items - allowed_numbered_items,
             'original_press_releases': len(original_press_releases),
             'preserved_press_releases': len(preserved_press_releases),
-            'press_release_examples': preserved_press_releases[:3]  # Show first 3 as examples
+            'press_release_examples': preserved_press_releases[:3],  # Show first 3 as examples
+            'allowed_item_numbers': sorted(list(allowed_numbers)) if allowed_numbers else []
         }
 
     def process_and_save(self, content: str) -> Dict[str, Any]:
@@ -961,100 +1049,165 @@ def main():
             # Sample data for demonstration
             sample_data = """Automotive
 
-1. Mercedes-Benz explores electric vehicle expansion in Eastern Europe
-* New manufacturing facility planned for Hungary
-* Investment of EUR 2.5 billion over 5 years
-* Expected to create 3,000 new jobs
+1. Daimler Truck, Volvo launch software JV Coretura
 
-BMW announces partnership with battery manufacturer
-The German automaker said it will invest EUR 500 million in new battery technology development.
-
-Source: Reuters
-Size: 1bn-5bn (EUR)
-Grade: Strong evidence
+2. VivoPower secures USD 121m investment led by Abdulaziz bin Turki
 
 Chemicals and materials
 
-2. BASF considers acquisition of specialty chemicals firm
-* Target company located in North America
-* Deal value estimated at USD 1.2 billion
-* Would strengthen BASF's agricultural solutions division
+3. Socomore in exclusive talks to raise over EUR 100m (translated)
 
-DowDuPont reports strong quarterly earnings
-The chemicals giant posted revenues of USD 2.1 billion, beating analyst expectations.
+Computer software
 
-Source: Chemical Week
-Size: 1bn-3bn (USD)
-Grade: Rumoured
+4. Aya Healthcare acquires Locum's Nest
 
-Financial Services
+5. TTC Group acquires Think Eleven
 
-3. Deutsche Bank considers fintech partnership opportunities
-* Focus on digital payment solutions
-* Multiple targets under evaluation
-* Investment range EUR 50m-150m
+Consumer: Foods
 
-JPMorgan Chase announces acquisition of UK-based fintech startup
-The bank will pay approximately USD 200 million for the digital payments company.
+6. Moyca attracts interest from industrial, financial groups - report (translated)
 
-Source: Financial Times
-Size: 50m-300m (EUR)
-Grade: Strong evidence
+Consumer: Other
+
+7. Eurmoda poised to close two acquisitions this year, double turnover – sponsor
 
 Energy
 
-4. Solar power company seeks strategic investor
+8. Solar power company seeks strategic investor
+
+9. Naturgy voluntary takeover bid gets 86.37% acceptance
+
+Financial Services
+
+10. Metro Bank majority owner Gilinski considers sale of stake – report
+
+11. Athora in talks to acquire PIC for up to GBP 5bn – report
+
+1. Daimler Truck, Volvo launch software JV Coretura
+
+* Focus on software development for commercial vehicles
+* 50% held by each parent
+* Volume of investments depends on milestones, technical progress
+
+Daimler Truck, a German vehicle maker, and Swedish auto group Volvo have announced the launch of a software joint venture named Coretura.
+
+Source: Company Press Release(s)
+Size: 1bn-5bn (EUR)
+Grade: Confirmed
+
+2. VivoPower secures USD 121m investment led by Abdulaziz bin Turki
+
+* First phase is equal to gross proceeds of USD 60.5m
+* Remaining 50% of private placement expected to close shortly
+* Funds to support VivoPower's Ripple, XRP-focused treasury, DeFi solutions
+
+VivoPower International PLC today announced that it has closed the first phase of the previously announced US$121 million investment round led by His Royal Highness Prince Abdulaziz bin Turki bin Talal Al Saud.
+
+Source: Company Press Release(s)
+Size: 60m-300m (GBP)
+Grade: Confirmed
+
+3. Socomore in exclusive talks to raise over EUR 100m (translated)
+
+* Transaction led by new investor Three Hills
+* President to retain majority, existing backers to reinvest
+* Socomore has 450 staff, EUR 120m turnover, EUR 20m+ EBITDA
+
+Socomore, a French surface treatment company specializing in high-tech chemical products, has entered into exclusive negotiations with a group of investors led by Three Hills.
+
+Source: Atlantique Presse Information
+Size: 60m-300m (GBP)
+Grade: Confirmed
+
+4. Aya Healthcare acquires Locum's Nest
+
+* Combination enhances value for clients
+* Locum's Nest streamlines NHS hospital shift filling
+* Aya operates world's largest digital staffing platform for healthcare labor services
+
+Aya Healthcare, the largest healthcare talent software and staffing company in the United States, today announced the acquisition of Locum's Nest, a leading workforce solutions provider in the United Kingdom.
+
+Source: Company Press Release(s)
+Size: < 60m (GBP)
+Grade: Confirmed
+
+5. TTC Group acquires Think Eleven
+
+* TTC's third acquisition in 18 months
+* TTC owned by Pricoa Private Capital
+
+TTC Group, a UK-based provider of people risk management solutions, has acquired Think Eleven, a Seaham, UK-based specialist international provider of competency management software and services.
+
+Source: Company Press Release(s)
+Size: < 60m (GBP)
+Grade: Confirmed
+
+6. Moyca attracts interest from industrial, financial groups - report (translated)
+
+* No formal bids for Moyca, despite interest from multiple parties
+* Moyca's 2024 revenues EUR 190m, EBITDA EUR 29m, potential sale at 6-7 times EBITDA
+* Deutsche Bank exploring sale of Moyca, acquired by ProA Capital in 2016
+
+Moyca, a Spanish agricultural company owned by private equity firm ProA Capital, has attracted interest from both industrial and financial groups.
+
+Source: El Economista
+Size: 60m-300m (GBP)
+Grade: Strong evidence
+
+7. Eurmoda poised to close two acquisitions this year, double turnover – sponsor
+
+* Expects turnover to reach EUR 90m post acquisitions
+* Aurora maintains 'rich' pipeline of potential targets
+
+Italian manufacturer Eurmoda is set to double its turnover with two strategic acquisitions expected to close this year, according to Piero Migliorini, partner at its sponsor Aurora Growth Capital.
+
+Source: Proprietary Intelligence
+Size: < 30m (GBP)
+Grade: Confirmed
+
+8. Solar power company seeks strategic investor
+
 * Renewable energy expansion in Asia
 * Funding requirement USD 300m
 * IPO alternative being considered
 
-Shell declares dividend increase following strong energy sector performance
-The oil giant announced a 15% increase in quarterly dividends to shareholders.
+A solar power company is seeking strategic investment for expansion in Asian markets with a funding requirement of USD 300 million.
 
 Source: Wall Street Journal
 Size: 200m-500m (USD)
 Grade: Confirmed
 
-Computer software
+9. Naturgy voluntary takeover bid gets 86.37% acceptance
 
-5. AI startup SecureCode raises Series B funding
-* Cybersecurity automation platform
-* Led by European venture capital firm
-* Total funding USD 75m
+* Takeover bid successful with high acceptance rate
+* Strong shareholder support for the transaction
 
-Microsoft introduces new enterprise AI solutions
-The software company unveiled three new artificial intelligence products for business customers.
+Naturgy's voluntary takeover bid has achieved an 86.37% acceptance rate from shareholders, marking a successful transaction.
 
-Oracle reports cloud infrastructure revenue growth of 45%
-The database company's cloud division exceeded analyst expectations with strong quarterly performance.
-
-Source: TechCrunch
-Size: 50m-100m (USD)
+Source: Company Announcement
+Size: > 1bn (EUR)
 Grade: Confirmed
 
-Defense
+10. Metro Bank majority owner Gilinski considers sale of stake – report
 
-6. Lockheed Martin secures new defense contract
-* Multi-year agreement with European NATO ally
-* Contract value estimated at USD 1.8 billion
-* Focuses on advanced missile defense systems
+* Potential divestment by major shareholder
+* Strategic review of ownership structure
 
-Source: Defense News
-Size: 1bn-3bn (USD)
-Grade: Confirmed
+Metro Bank's majority owner Gilinski is reportedly considering the sale of his stake in the British challenger bank.
 
-Healthcare
+Source: Financial media reports
+Size: 300m-1bn (GBP)
+Grade: Strong evidence
 
-7. Medical device manufacturer exploring strategic options
-* Cardiac monitoring technology company
-* Private equity interest reported
-* Valuation around EUR 500m
+11. Athora in talks to acquire PIC for up to GBP 5bn – report
 
-Pfizer announces breakthrough in diabetes treatment research
-The pharmaceutical company reported positive Phase III trial results for its new insulin therapy.
+* Major acquisition in insurance sector
+* Deal valued at up to GBP 5 billion
 
-Source: MedTech Dive
-Size: 300m-1bn (EUR)
+Insurance group Athora is reportedly in talks to acquire Pension Insurance Corporation (PIC) in a deal that could be worth up to GBP 5 billion.
+
+Source: Financial media reports
+Size: > 1bn (GBP)
 Grade: Strong evidence"""
             
             text_input = st.text_area(
@@ -1113,6 +1266,10 @@ Grade: Strong evidence"""
                                     st.write(f"  • {section}")
                             else:
                                 st.success("✨ **All sections were in allowed categories!**")
+                        
+                        # Numbered items information
+                        if filtering_report.get('total_numbered_items', 0) > 0:
+                            st.info(f"🔢 **Numbered Items**: {filtering_report['allowed_numbered_items']} of {filtering_report['total_numbered_items']} items preserved (Numbers: {', '.join(map(str, filtering_report['allowed_item_numbers'][:10]))})")
                         
                         # Press release information
                         if filtering_report.get('original_press_releases', 0) > 0:
