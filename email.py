@@ -715,16 +715,6 @@ class SmartTextProcessor:
         if not content.strip():
             return "No content to format."
         
-        # Apply content filtering based on current filter settings
-        try:
-            import streamlit as st
-            filter_mode = st.session_state.get('filter_mode', 'Priority Sectors Only')
-            selected_sectors = st.session_state.get('selected_sectors', self.priority_sectors)
-            content = self._filter_content_by_priority_sections(content, filter_mode, selected_sectors)
-        except:
-            # Fallback if session state is not available
-            pass
-        
         lines = content.split('\n')
         formatted_lines = []
         
@@ -769,16 +759,6 @@ class SmartTextProcessor:
         """Format raw text for email-friendly plain text matching the specific format"""
         if not content.strip():
             return "No content to format."
-        
-        # Apply content filtering based on current filter settings
-        try:
-            import streamlit as st
-            filter_mode = st.session_state.get('filter_mode', 'Priority Sectors Only')
-            selected_sectors = st.session_state.get('selected_sectors', self.priority_sectors)
-            content = self._filter_content_by_priority_sections(content, filter_mode, selected_sectors)
-        except:
-            # Fallback if session state is not available
-            pass
         
         lines = content.split('\n')
         formatted_lines = []
@@ -1004,59 +984,6 @@ class SmartTextProcessor:
     def is_priority_sector(self, sector: str) -> bool:
         """Check if a sector is in the priority list"""
         return sector in self.priority_sectors
-    
-    def _filter_content_by_priority_sections(self, content: str, filter_mode: str = "Priority Sectors Only", selected_sectors: List[str] = None) -> str:
-        """Filter content to only include sections that match the filtering criteria"""
-        if filter_mode == "Show All Sectors":
-            return content  # No filtering
-        
-        # Determine which priority sectors to keep
-        if filter_mode == "Priority Sectors Only":
-            target_priority_sectors = set(self.priority_sectors)
-        elif filter_mode == "Custom Selection" and selected_sectors:
-            target_priority_sectors = set(selected_sectors)
-        else:
-            return content  # Fallback to no filtering
-        
-        lines = content.split('\n')
-        filtered_lines = []
-        current_section = None
-        include_current_section = True
-        
-        # Debug info - let's see what's happening
-        debug_info = []
-        
-        for line in lines:
-            line_stripped = line.strip()
-            
-            # Check if this is a section header
-            if self._is_section_header(line_stripped):
-                current_section = line_stripped
-                
-                # Map the section header to a priority sector
-                section_mapped = self.map_section_to_priority(current_section)
-                
-                # Check if the mapped priority sector is in our target list
-                include_current_section = section_mapped in target_priority_sectors
-                
-                # Debug logging
-                debug_info.append(f"Section '{current_section}' -> Maps to '{section_mapped}' -> Include: {include_current_section}")
-                
-                if include_current_section:
-                    filtered_lines.append(line)
-            else:
-                # Include this line only if we're including the current section
-                if include_current_section:
-                    filtered_lines.append(line)
-        
-        # Store debug info in session state for troubleshooting
-        try:
-            import streamlit as st
-            st.session_state.filter_debug = debug_info
-        except:
-            pass
-        
-        return '\n'.join(filtered_lines)
     
     def filter_deals_by_priority_sectors(self, deals: List[Dict]) -> List[Dict]:
         """Filter deals to only include priority sectors"""
@@ -1365,37 +1292,6 @@ Intelligence ID: intelcms-k9mrqp"""
         
         if format_button and text_input:
             with st.spinner("Formatting your text..."):
-                # Show filtering status
-                filter_mode = st.session_state.get('filter_mode', 'Priority Sectors Only')
-                if filter_mode != "Show All Sectors":
-                    if filter_mode == "Priority Sectors Only":
-                        st.info(f"🎯 Applying priority sector filter: showing only {len(st.session_state.processor.priority_sectors)} priority sectors")
-                    else:
-                        selected_sectors = st.session_state.get('selected_sectors', [])
-                        st.info(f"✅ Applying custom sector filter: showing {len(selected_sectors) if selected_sectors else 0} selected sectors")
-                    
-                    # Show debug information about filtering
-                    if 'filter_debug' in st.session_state and st.session_state.filter_debug:
-                        with st.expander("🔍 Filtering Debug Information"):
-                            st.markdown("**Section Filtering Results:**")
-                            for debug_line in st.session_state.filter_debug:
-                                st.markdown(f"• {debug_line}")
-                            
-                            st.markdown("**Your Target Priority Sectors:**")
-                            if filter_mode == "Priority Sectors Only":
-                                target_sectors = st.session_state.processor.priority_sectors
-                            else:
-                                target_sectors = st.session_state.get('selected_sectors', [])
-                            
-                            for sector in target_sectors:
-                                st.markdown(f"✅ {sector}")
-                            
-                            st.markdown("**Section Mapping Reference:**")
-                            for header, maps_to in st.session_state.processor.section_to_priority_mapping.items():
-                                is_target = maps_to in target_sectors
-                                status = "✅ KEEP" if is_target else "❌ FILTER OUT"
-                                st.markdown(f"• {header} → {maps_to} ({status})")
-                
                 # Format the text for both web and email
                 formatted_text = st.session_state.processor.format_raw_text(text_input)
                 email_formatted_text = st.session_state.processor.format_for_email(text_input)
