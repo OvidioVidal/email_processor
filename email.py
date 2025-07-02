@@ -371,6 +371,22 @@ class DatabaseManager:
 class SmartTextProcessor:
     def __init__(self):
         self.db_manager = DatabaseManager()
+        
+        # Define allowed categories - only these will be processed
+        self.allowed_categories = {
+            'automotive',
+            'computer software',
+            'consumer: foods',
+            'consumer: other', 
+            'consumer: retail',
+            'defense',
+            'financial services',
+            'industrial automation',
+            'industrial products and services',
+            'industrial: electronics',
+            'services (other)'
+        }
+        
         self.sector_keywords = {
             'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
             'technology': ['tech', 'software', 'AI', 'digital', 'data', 'cyber', 'SaaS', 'IT', 'cloud', 'app'],
@@ -393,12 +409,68 @@ class SmartTextProcessor:
             'asia': ['asia', 'asian', 'japan', 'singapore', 'hong kong']
         }
 
+    def _is_allowed_category(self, section_name: str) -> bool:
+        """Check if a section category is in the allowed list"""
+        if not section_name:
+            return False
+        
+        section_lower = section_name.lower().strip()
+        
+        # Direct match first
+        if section_lower in self.allowed_categories:
+            return True
+        
+        # Check for partial matches (e.g., "industrial automation" should match "industrial: automation")
+        for allowed_cat in self.allowed_categories:
+            # Remove punctuation and compare
+            section_clean = re.sub(r'[^\w\s]', '', section_lower)
+            allowed_clean = re.sub(r'[^\w\s]', '', allowed_cat)
+            
+            if section_clean == allowed_clean:
+                return True
+        
+        return False
+
+    def _filter_content_by_category(self, content: str) -> str:
+        """Filter content to only include allowed categories"""
+        lines = content.split('\n')
+        filtered_lines = []
+        current_section = None
+        include_current_section = False  # Start with False - only include if explicitly allowed
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # Check if this is a section header
+            if self._is_section_header(line_stripped):
+                current_section = line_stripped
+                include_current_section = self._is_allowed_category(current_section)
+                
+                # Only add the section header if it's allowed
+                if include_current_section:
+                    # Add some spacing before new sections (except first)
+                    if filtered_lines and filtered_lines[-1].strip():
+                        filtered_lines.append('')
+                    filtered_lines.append(line)
+            else:
+                # Only add non-header lines if we're in an allowed section
+                if include_current_section:
+                    filtered_lines.append(line)
+        
+        return '\n'.join(filtered_lines)
+
     def format_raw_text(self, content: str) -> str:
         """Format raw text into a more readable structure with HTML"""
         if not content.strip():
             return "No content to format."
         
-        lines = content.split('\n')
+        # First filter content by allowed categories
+        filtered_content = self._filter_content_by_category(content)
+        
+        if not filtered_content.strip():
+            return '<div class="section-header">⚠️ NO ALLOWED CATEGORIES FOUND</div><p style="color: #e74c3c; margin: 1rem 0;">The input text does not contain any of the allowed categories. Please check if the section headers match the permitted categories.</p>'
+        
+        lines = filtered_content.split('\n')
         formatted_lines = []
         
         for line in lines:
@@ -443,7 +515,14 @@ class SmartTextProcessor:
         if not content.strip():
             return "No content to format."
         
-        lines = content.split('\n')
+        # First filter content by allowed categories
+        filtered_content = self._filter_content_by_category(content)
+        
+        if not filtered_content.strip():
+            return "NO ALLOWED CATEGORIES FOUND\n\nThe input text does not contain any of the allowed categories.\nPlease check if the section headers match the permitted categories:\n\n" + \
+                   "\n".join(f"• {cat.title()}" for cat in sorted(self.allowed_categories))
+        
+        lines = filtered_content.split('\n')
         formatted_lines = []
         
         for line in lines:
@@ -499,14 +578,25 @@ class SmartTextProcessor:
 
     def _is_section_header(self, line: str) -> bool:
         """Check if line is likely a section header"""
+        if not line.strip():
+            return False
+            
         words = line.split()
-        return (len(words) <= 3 and 
-                len(line) < 50 and
-                (line.isupper() or line.istitle()) and
+        
+        # More strict criteria for section headers
+        return (len(words) <= 4 and  # Allow up to 4 words for headers like "Industrial: Electronics"
+                len(line) < 60 and    # Reasonable length limit
                 not line.startswith('*') and
-                not re.match(r'^\d+\.', line) and
-                not any(char in line for char in ['(', ')', '€', '$', '£', ':']))
-    
+                not line.startswith('-') and 
+                not line.startswith('•') and
+                not re.match(r'^\d+\.', line) and  # Not a numbered item
+                not any(char in line for char in ['(', ')', '€', '$', '£']) and  # No monetary symbols
+                not line.lower().startswith('source:') and  # Not metadata
+                not line.lower().startswith('size:') and
+                not line.lower().startswith('grade:') and
+                not line.lower().startswith('intelligence') and
+                ':' not in line.lower() or line.count(':') == 1)  # Allow one colon for "Consumer: Foods" format
+
     def _contains_monetary_value(self, line: str) -> bool:
         """Check if line contains monetary values"""
         return bool(re.search(r'(EUR|USD|GBP|CNY|\$|£|€)\s*[\d,\.]+', line, re.IGNORECASE) or
@@ -546,7 +636,9 @@ class SmartTextProcessor:
 
     def extract_key_information(self, content: str) -> Dict[str, Any]:
         """Extract key information from the text"""
-        lines = content.split('\n')
+        # First filter content by allowed categories
+        filtered_content = self._filter_content_by_category(content)
+        lines = filtered_content.split('\n')
         
         info = {
             'total_lines': len([l for l in lines if l.strip()]),
@@ -554,7 +646,8 @@ class SmartTextProcessor:
             'deals': [],
             'monetary_values': [],
             'companies': [],
-            'metadata': {}
+            'metadata': {},
+            'filtered_categories': []  # Track which categories were included
         }
         
         current_section = None
@@ -565,10 +658,12 @@ class SmartTextProcessor:
             if not line:
                 continue
             
-            # Track sections
+            # Track sections (only allowed ones will be here after filtering)
             if self._is_section_header(line):
                 current_section = line
                 info['sections'].append(line)
+                if self._is_allowed_category(line):
+                    info['filtered_categories'].append(line.lower().strip())
             
             # Track numbered deals
             if re.match(r'^\d+\.', line):
@@ -590,14 +685,44 @@ class SmartTextProcessor:
         
         return info
 
+    def _get_filtering_report(self, content: str) -> Dict[str, Any]:
+        """Generate a report of what was filtered during processing"""
+        lines = content.split('\n')
+        all_sections = []
+        allowed_sections = []
+        filtered_sections = []
+        
+        for line in lines:
+            line_stripped = line.strip()
+            if self._is_section_header(line_stripped):
+                all_sections.append(line_stripped)
+                if self._is_allowed_category(line_stripped):
+                    allowed_sections.append(line_stripped)
+                else:
+                    filtered_sections.append(line_stripped)
+        
+        return {
+            'total_sections': len(all_sections),
+            'allowed_sections': allowed_sections,
+            'filtered_sections': filtered_sections,
+            'sections_kept': len(allowed_sections),
+            'sections_removed': len(filtered_sections)
+        }
+
     def process_and_save(self, content: str) -> Dict[str, Any]:
         """Process text and save to database"""
+        # Generate filtering report first
+        filtering_report = self._get_filtering_report(content)
+        
         # Format the content
         formatted_text = self.format_raw_text(content)
         email_formatted_text = self.format_for_email(content)
         
         # Extract key information
         analysis_data = self.extract_key_information(content)
+        
+        # Add filtering report to analysis data
+        analysis_data['filtering_report'] = filtering_report
         
         # Save to database
         email_id = self.db_manager.save_email_data(
@@ -608,7 +733,8 @@ class SmartTextProcessor:
             'email_id': email_id,
             'formatted_text': formatted_text,
             'email_formatted_text': email_formatted_text,
-            'analysis_data': analysis_data
+            'analysis_data': analysis_data,
+            'filtering_report': filtering_report
         }
 
     def create_summary(self, content: str) -> str:
@@ -721,6 +847,30 @@ def main():
         st.markdown("### 🗂️ Navigation")
         page = st.selectbox("Choose Function:", 
                            ["📝 Text Formatter", "📊 Analytics Dashboard", "🔍 Search History"])
+        
+        # Add allowed categories display
+        st.markdown("### 🏷️ Allowed Categories")
+        st.markdown("**Only these categories will be processed:**")
+        
+        allowed_cats = [
+            "Automotive",
+            "Computer software", 
+            "Consumer: Foods",
+            "Consumer: Other",
+            "Consumer: Retail",
+            "Defense",
+            "Financial Services",
+            "Industrial automation",
+            "Industrial products and services",
+            "Industrial: Electronics",
+            "Services (other)"
+        ]
+        
+        for cat in allowed_cats:
+            st.markdown(f"✅ {cat}")
+        
+        st.markdown("---")
+        st.markdown("*Content from other categories will be automatically filtered out.*")
     
     if page == "📝 Text Formatter":
         # Main layout
@@ -732,35 +882,69 @@ def main():
             # Sample data for demonstration
             sample_data = """Automotive
 
-2. Magirus could expand outside of Germany through acquisitions - report (translated)
+1. Mercedes-Benz explores electric vehicle expansion in Eastern Europe
+* New manufacturing facility planned for Hungary
+* Investment of EUR 2.5 billion over 5 years
+* Expected to create 3,000 new jobs
 
-* Subsidiaries planned in Switzerland, Spain, Poland, and UAE
-* Aims to set up production sites in Romania, Croatia through acquisitions
-* Aims to double sales to EUR 750m by 2030
-
-Magirus, the German fire protection group, could acquire to expand its business outside of Germany, Schwäbische Zeitung reported.
-
-Without citing a specific source, the German daily said Magirus wants to establish subsidiaries in Switzerland, Spain, Poland and the United Arab Emirates.
-
-Source: Schwäbische Zeitung
-Size: 60m-300m (GBP)
-Grade: Rumoured
-Intelligence ID: intelcms-2bxt7z
-
-Technology
-
-3. Adarga seeks GBP 6m-GBP 8m in new funding – report
-
-* Previous USD 20m investment round led by BOKA Group
-
-Adarga is engaged in extensive discussions with a potential investor regarding a capital infusion ranging from GBP 6m to GBP 8m, Sky News reported.
-
-The company specializes in artificial intelligence solutions for defense applications and has been growing rapidly in the UK market.
-
-Source: Sky News
-Size: 5m-30m (GBP)
+Source: Reuters
+Size: 1bn-5bn (EUR)
 Grade: Strong evidence
-Intelligence ID: intelcms-k9mrqp"""
+
+Chemicals and materials
+
+2. BASF considers acquisition of specialty chemicals firm
+* Target company located in North America
+* Deal value estimated at USD 1.2 billion
+* Would strengthen BASF's agricultural solutions division
+
+Source: Chemical Week
+Size: 1bn-3bn (USD)
+Grade: Rumoured
+
+Financial Services
+
+3. Deutsche Bank considers fintech partnership opportunities
+* Focus on digital payment solutions
+* Multiple targets under evaluation
+* Investment range EUR 50m-150m
+
+Source: Financial Times
+Size: 50m-300m (EUR)
+Grade: Strong evidence
+
+Energy
+
+4. Solar power company seeks strategic investor
+* Renewable energy expansion in Asia
+* Funding requirement USD 300m
+* IPO alternative being considered
+
+Source: Wall Street Journal
+Size: 200m-500m (USD)
+Grade: Confirmed
+
+Computer software
+
+5. AI startup SecureCode raises Series B funding
+* Cybersecurity automation platform
+* Led by European venture capital firm
+* Total funding USD 75m
+
+Source: TechCrunch
+Size: 50m-100m (USD)
+Grade: Confirmed
+
+Healthcare
+
+6. Medical device manufacturer exploring strategic options
+* Cardiac monitoring technology company
+* Private equity interest reported
+* Valuation around EUR 500m
+
+Source: MedTech Dive
+Size: 300m-1bn (EUR)
+Grade: Strong evidence"""
             
             text_input = st.text_area(
                 "Paste your raw text here:",
@@ -794,9 +978,38 @@ Intelligence ID: intelcms-k9mrqp"""
                     st.session_state.analysis_data = result['analysis_data']
                     st.session_state.email_id = result['email_id']
                     
-                    # Show success message
+                    # Show success message with filtering info
                     if result['email_id']:
                         st.success(f"✅ Email saved to database with ID: {result['email_id']}")
+                        
+                        # Display detailed filtering statistics
+                        filtering_report = result['filtering_report']
+                        
+                        col_stats1, col_stats2 = st.columns(2)
+                        
+                        with col_stats1:
+                            if filtering_report['allowed_sections']:
+                                st.info(f"✅ **{filtering_report['sections_kept']} Categories Processed:**")
+                                for section in filtering_report['allowed_sections']:
+                                    st.write(f"  • {section}")
+                            else:
+                                st.warning("⚠️ **No allowed categories found in the input text.**")
+                        
+                        with col_stats2:
+                            if filtering_report['filtered_sections']:
+                                st.warning(f"🚫 **{filtering_report['sections_removed']} Categories Filtered Out:**")
+                                for section in filtering_report['filtered_sections']:
+                                    st.write(f"  • {section}")
+                            else:
+                                st.success("✨ **All sections were in allowed categories!**")
+                        
+                        # Summary
+                        if filtering_report['total_sections'] > 0:
+                            retention_rate = (filtering_report['sections_kept'] / filtering_report['total_sections']) * 100
+                            st.metric("📊 Content Retention Rate", f"{retention_rate:.1f}%")
+                        
+                    else:
+                        st.error("❌ Failed to save to database")
             
             # Display formatted text if available
             if 'formatted_text' in st.session_state:
