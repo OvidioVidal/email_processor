@@ -185,6 +185,58 @@ class DatabaseManager:
             )
         ''')
         
+        # Create sectors table for analytics
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sectors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                deal_id INTEGER,
+                sector_name TEXT,
+                deal_count INTEGER DEFAULT 1,
+                total_value REAL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id),
+                FOREIGN KEY (deal_id) REFERENCES deals (id)
+            )
+        ''')
+        
+        # Create pe_firms table for tracking private equity activity
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pe_firms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                deal_id INTEGER,
+                firm_name TEXT,
+                deal_type TEXT,
+                deal_value REAL,
+                geographic_focus TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id),
+                FOREIGN KEY (deal_id) REFERENCES deals (id)
+            )
+        ''')
+        
+        # Create deal_volumes table for volume metrics
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS deal_volumes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id INTEGER,
+                period_date DATE,
+                total_volume REAL,
+                deal_count INTEGER,
+                average_volume REAL,
+                sector_breakdown TEXT, -- JSON string
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails (id)
+            )
+        ''')
+        
+        # Add indexes for efficient querying
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sectors_name ON sectors(sector_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pe_firms_name ON pe_firms(firm_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_deal_volumes_date ON deal_volumes(period_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_deals_sector ON deals(section_name)')
+        
         conn.commit()
         conn.close()
     
@@ -243,6 +295,36 @@ class DatabaseManager:
                     INSERT INTO metadata (email_id, key_name, value_text)
                     VALUES (?, ?, ?)
                 ''', (email_id, key, str(value)))
+            
+            # Insert sector analytics if available
+            if 'sector_analysis' in analysis_data:
+                for sector_name, sector_data in analysis_data['sector_analysis'].items():
+                    cursor.execute('''
+                        INSERT INTO sectors (email_id, sector_name, deal_count, total_value)
+                        VALUES (?, ?, ?, ?)
+                    ''', (email_id, sector_name, sector_data['deal_count'], sector_data['total_value']))
+            
+            # Insert PE firm data if available
+            if 'pe_firms' in analysis_data:
+                for pe_firm_deal in analysis_data['pe_firms']:
+                    if 'pe_firm' in pe_firm_deal:
+                        pe_data = pe_firm_deal['pe_firm']
+                        cursor.execute('''
+                            INSERT INTO pe_firms (email_id, firm_name, deal_type, deal_value, geographic_focus)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (email_id, pe_data['firm_name'], pe_data['deal_type'], 
+                              pe_data['deal_value'], pe_data['geographic_focus']))
+            
+            # Insert deal volume metrics if available
+            if 'volume_metrics' in analysis_data:
+                volume_data = analysis_data['volume_metrics']
+                cursor.execute('''
+                    INSERT INTO deal_volumes (email_id, period_date, total_volume, deal_count, 
+                                            average_volume, sector_breakdown)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (email_id, volume_data['period_date'], volume_data['total_volume'],
+                      volume_data['deal_count'], volume_data['average_volume'],
+                      json.dumps(volume_data['sector_breakdown'])))
             
             conn.commit()
             return email_id
@@ -488,7 +570,11 @@ class SmartTextProcessor:
         cursor = conn.cursor()
         
         try:
-            # Delete all data from all tables
+            # Delete all data from all tables (order matters due to foreign keys)
+            cursor.execute('DELETE FROM sectors')
+            cursor.execute('DELETE FROM pe_firms')
+            cursor.execute('DELETE FROM deal_volumes')
+            cursor.execute('DELETE FROM companies')
             cursor.execute('DELETE FROM deals')
             cursor.execute('DELETE FROM sections')
             cursor.execute('DELETE FROM monetary_values')
@@ -642,7 +728,7 @@ class SmartTextProcessor:
         return '\n'.join(formatted_lines)
 
     def format_for_email(self, content: str) -> str:
-        """Format raw text for email-friendly plain text with clickable links preserved"""
+        """Format raw text for email-friendly plain text with enhanced visual structure"""
         if not content.strip():
             return "No content to format."
         
@@ -651,10 +737,12 @@ class SmartTextProcessor:
         
         if not filtered_content.strip():
             return "NO ALLOWED CATEGORIES FOUND\n\nThe input text does not contain any of the allowed categories.\nPlease check if the section headers match the permitted categories:\n\n" + \
-                   "\n".join(f"• {cat.title()}" for cat in sorted(self.allowed_categories))
+                   "\n".join(f"• {cat.title()}" for cat in sorted(self.priority_sectors))
         
         lines = filtered_content.split('\n')
         formatted_lines = []
+        current_sector = None
+        executive_summary_ended = False
         
         for line in lines:
             line = line.strip()
@@ -665,16 +753,40 @@ class SmartTextProcessor:
             # Process line to ensure URLs are clickable
             processed_line = self._make_links_clickable(line)
             
-            # Check if line is a section header (clean, simple format)
+            # Check if line is a section header
             if self._is_section_header(line):
-                # Add spacing before section headers
+                current_sector = line
+                
+                # Check if this marks the end of executive summary
+                if not executive_summary_ended and any(keyword in line.lower() for keyword in ['summary', 'overview', 'highlights']):
+                    executive_summary_ended = True
+                
+                # Add enhanced formatting for sector headers
                 if formatted_lines and formatted_lines[-1] != '':
                     formatted_lines.append('')
-                formatted_lines.append(processed_line)
-                formatted_lines.append('')
+                    formatted_lines.append('')  # Extra spacing between sectors
+                
+                # Add sector designation and separator for industry sections
+                if current_sector and not any(keyword in current_sector.lower() for keyword in ['summary', 'overview', 'highlights']):
+                    formatted_lines.append("=" * 60)  # Black separator line
+                    formatted_lines.append('')
+                    formatted_lines.append(f"SECTOR: {processed_line.upper()}")
+                    formatted_lines.append("=" * 60)
+                    formatted_lines.append('')
+                else:
+                    # Add separator after executive summary
+                    if executive_summary_ended:
+                        formatted_lines.append("─" * 60)
+                        formatted_lines.append('')
+                    formatted_lines.append(processed_line)
+                    formatted_lines.append('')
             
             # Check if line is a numbered item (deal/topic)
             elif re.match(r'^\d+\.', line):
+                # Add extra spacing before numbered items in different sectors
+                if formatted_lines and formatted_lines[-1] != '':
+                    formatted_lines.append('')
+                
                 formatted_lines.append(processed_line)
                 formatted_lines.append('')  # Add blank line after numbered items
             
@@ -690,26 +802,65 @@ class SmartTextProcessor:
             
             # Regular paragraph text
             else:
+                # Filter out irrelevant press release content
+                if not self._is_relevant_press_release_content(line):
+                    continue
+                    
                 formatted_lines.append(processed_line)
         
-        # Clean up multiple consecutive blank lines
+        # Clean up multiple consecutive blank lines but preserve intentional spacing
         cleaned_lines = []
         prev_was_blank = False
+        blank_count = 0
         
         for line in formatted_lines:
             if line == '':
-                if not prev_was_blank:
+                blank_count += 1
+                if not prev_was_blank or blank_count <= 2:  # Allow up to 2 consecutive blanks for spacing
                     cleaned_lines.append(line)
                 prev_was_blank = True
             else:
                 cleaned_lines.append(line)
                 prev_was_blank = False
+                blank_count = 0
         
         # Remove trailing blank lines
         while cleaned_lines and cleaned_lines[-1] == '':
             cleaned_lines.pop()
         
         return '\n'.join(cleaned_lines)
+    
+    def _is_relevant_press_release_content(self, line: str) -> bool:
+        """Filter out irrelevant press release content that doesn't add value"""
+        line_lower = line.lower()
+        
+        # Skip boilerplate content
+        irrelevant_patterns = [
+            r'this press release contains forward.looking statements',
+            r'forward.looking statements are subject to risks',
+            r'actual results may differ materially',
+            r'for more information.*visit',
+            r'about [a-z\s]+ company',
+            r'media contact',
+            r'investor relations',
+            r'safe harbor statement',
+            r'this communication is being made',
+            r'cautionary note regarding forward',
+            r'non.gaap financial measures',
+            r'trademark.*registered',
+            r'copyright.*all rights reserved'
+        ]
+        
+        # Check if line matches any irrelevant pattern
+        for pattern in irrelevant_patterns:
+            if re.search(pattern, line_lower):
+                return False
+        
+        # Skip very short lines that are likely not substantive
+        if len(line.strip()) < 20 and not re.match(r'^\d+\.', line) and ':' not in line:
+            return False
+            
+        return True
     
     def _make_links_clickable(self, text: str) -> str:
         """Make URLs in text clickable for email clients"""
@@ -884,6 +1035,144 @@ class SmartTextProcessor:
         
         return 'TBD'
 
+    def extract_pe_firms(self, content: str) -> List[Dict[str, Any]]:
+        """Extract private equity firm information from content"""
+        pe_firms = []
+        
+        # Common PE firm patterns
+        pe_patterns = [
+            r'([A-Z][a-z\s&]+(?:Capital|Partners|Equity|Ventures|Investment|Fund|Management))',
+            r'([A-Z][a-z\s&]+(?:PE|VC|Private Equity))',
+            r'((?:Blackstone|KKR|Carlyle|Apollo|Bain Capital|TPG|Warburg Pincus|General Atlantic|Silver Lake))',
+        ]
+        
+        # Deal type patterns
+        deal_type_patterns = {
+            'acquisition': r'(?:acquir|purchas|buy)',
+            'investment': r'(?:invest|funding|capital)',
+            'exit': r'(?:exit|sell|divest)',
+            'ipo': r'(?:ipo|public offering|listing)',
+            'merger': r'(?:merg|combin)'
+        }
+        
+        lines = content.split('\n')
+        current_deal = {}
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Check for numbered deals
+            if re.match(r'^\d+\.', line):
+                if current_deal and 'pe_firm' in current_deal:
+                    pe_firms.append(current_deal)
+                current_deal = {'deal_text': line}
+                
+            # Extract PE firms from current line
+            for pattern in pe_patterns:
+                matches = re.findall(pattern, line, re.IGNORECASE)
+                for match in matches:
+                    if len(match.strip()) > 3:  # Filter out very short matches
+                        # Determine deal type
+                        deal_type = 'other'
+                        for dtype, dpattern in deal_type_patterns.items():
+                            if re.search(dpattern, line, re.IGNORECASE):
+                                deal_type = dtype
+                                break
+                        
+                        # Extract potential deal value
+                        deal_value = self._extract_numeric_value(line)
+                        
+                        pe_firm_data = {
+                            'firm_name': match.strip(),
+                            'deal_type': deal_type,
+                            'deal_value': deal_value,
+                            'geographic_focus': self.extract_geography(line),
+                            'context': line[:100] + "..." if len(line) > 100 else line
+                        }
+                        
+                        if current_deal:
+                            current_deal['pe_firm'] = pe_firm_data
+                        else:
+                            pe_firms.append({'pe_firm': pe_firm_data, 'deal_text': line})
+        
+        # Don't forget the last deal
+        if current_deal and 'pe_firm' in current_deal:
+            pe_firms.append(current_deal)
+            
+        return pe_firms
+
+    def analyze_deals_by_sector(self, deals: List[Dict]) -> Dict[str, Any]:
+        """Analyze deals grouped by sector"""
+        sector_analysis = {}
+        
+        for deal in deals:
+            sector = deal.get('identified_sector', deal.get('sector', 'Other'))
+            if sector not in sector_analysis:
+                sector_analysis[sector] = {
+                    'deal_count': 0,
+                    'total_value': 0,
+                    'deals': [],
+                    'avg_value': 0,
+                    'geography_breakdown': {},
+                    'value_range': {'min': float('inf'), 'max': 0}
+                }
+            
+            sector_analysis[sector]['deal_count'] += 1
+            sector_analysis[sector]['deals'].append(deal)
+            
+            # Extract and accumulate deal values
+            deal_value = self._extract_numeric_value(deal.get('value', '0'))
+            if deal_value > 0:
+                sector_analysis[sector]['total_value'] += deal_value
+                sector_analysis[sector]['value_range']['min'] = min(
+                    sector_analysis[sector]['value_range']['min'], deal_value
+                )
+                sector_analysis[sector]['value_range']['max'] = max(
+                    sector_analysis[sector]['value_range']['max'], deal_value
+                )
+            
+            # Track geography
+            geography = deal.get('geography', 'Global')
+            if geography not in sector_analysis[sector]['geography_breakdown']:
+                sector_analysis[sector]['geography_breakdown'][geography] = 0
+            sector_analysis[sector]['geography_breakdown'][geography] += 1
+        
+        # Calculate averages
+        for sector, data in sector_analysis.items():
+            if data['deal_count'] > 0 and data['total_value'] > 0:
+                data['avg_value'] = data['total_value'] / data['deal_count']
+            if data['value_range']['min'] == float('inf'):
+                data['value_range']['min'] = 0
+                
+        return sector_analysis
+
+    def calculate_deal_volume_metrics(self, deals: List[Dict]) -> Dict[str, Any]:
+        """Calculate deal volume metrics for the period"""
+        total_volume = 0
+        deal_count = len(deals)
+        sector_volumes = {}
+        
+        for deal in deals:
+            deal_value = self._extract_numeric_value(deal.get('value', '0'))
+            total_volume += deal_value
+            
+            sector = deal.get('identified_sector', deal.get('sector', 'Other'))
+            if sector not in sector_volumes:
+                sector_volumes[sector] = 0
+            sector_volumes[sector] += deal_value
+        
+        average_volume = total_volume / deal_count if deal_count > 0 else 0
+        
+        return {
+            'total_volume': total_volume,
+            'deal_count': deal_count,
+            'average_volume': average_volume,
+            'sector_breakdown': sector_volumes,
+            'period_date': datetime.now().date().isoformat()
+        }
+
     def _is_section_header(self, line: str) -> bool:
         """Check if line is likely a section header"""
         words = line.split()
@@ -932,7 +1221,7 @@ class SmartTextProcessor:
         return line
 
     def extract_key_information(self, content: str) -> Dict[str, Any]:
-        """Extract key information from the text"""
+        """Extract key information from the text with enhanced analytics"""
         # First filter content by allowed categories
         filtered_content = self._filter_content_by_category(content)
         lines = filtered_content.split('\n')
@@ -980,6 +1269,22 @@ class SmartTextProcessor:
                 key, value = line.split(':', 1)
                 info['metadata'][key.strip()] = value.strip()
         
+        # Add enhanced analytics
+        # Parse deals for detailed analysis
+        parsed_deals = self.parse_deals_from_content(content)
+        
+        # Analyze deals by sector
+        info['sector_analysis'] = self.analyze_deals_by_sector(parsed_deals)
+        
+        # Extract PE firm information
+        info['pe_firms'] = self.extract_pe_firms(content)
+        
+        # Calculate deal volume metrics
+        info['volume_metrics'] = self.calculate_deal_volume_metrics(parsed_deals)
+        
+        # Add parsed deals for compatibility
+        info['parsed_deals'] = parsed_deals
+        
         return info
 
     def _detect_press_releases(self, content: str) -> List[str]:
@@ -1011,6 +1316,201 @@ class SmartTextProcessor:
                         break
         
         return press_releases
+
+    def _is_allowed_category(self, section_name: str) -> bool:
+        """Check if a section/category is in the allowed list"""
+        normalized_section = section_name.lower().strip()
+        
+        allowed_categories = {
+            'automotive',
+            'computer software', 
+            'consumer: foods',
+            'consumer: other',
+            'consumer: retail',
+            'defense',
+            'financial services',
+            'industrial automation',
+            'industrial products and services',
+            'industrial: electronics',
+            'services (other)'
+        }
+        
+        # Direct match
+        if normalized_section in allowed_categories:
+            return True
+        
+        # Check for partial matches (useful for variations like "Technology" vs "Computer software")
+        for allowed in allowed_categories:
+            if allowed in normalized_section or normalized_section in allowed:
+                return True
+        
+        return False
+
+    def _extract_numbered_items_by_category(self, content: str) -> Dict[str, List[int]]:
+        """Extract which numbered items belong to which categories"""
+        lines = content.split('\n')
+        category_to_numbers = {}
+        current_category = None
+        
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+                
+            # Check if this is a section header
+            if self._is_section_header(line_stripped):
+                current_category = line_stripped
+                if current_category not in category_to_numbers:
+                    category_to_numbers[current_category] = []
+            
+            # Check if this is a numbered item
+            elif re.match(r'^\d+\.', line_stripped) and current_category:
+                # Extract the number
+                match = re.match(r'^(\d+)\.', line_stripped)
+                if match:
+                    item_number = int(match.group(1))
+                    category_to_numbers[current_category].append(item_number)
+        
+        return category_to_numbers
+    
+    def _build_title_to_industry_mapping(self, content: str) -> Dict[str, str]:
+        """Build a mapping of numbered entry titles to their industries"""
+        lines = content.split('\n')
+        title_to_industry = {}
+        current_industry = None
+        
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+                
+            # Check if this is a section header (industry)
+            if self._is_section_header(line_stripped):
+                current_industry = line_stripped
+            
+            # Check if this is a numbered item
+            elif re.match(r'^\d+\.', line_stripped) and current_industry:
+                # Store the full title (normalized for better matching)
+                normalized_title = line_stripped.lower().strip()
+                title_to_industry[normalized_title] = current_industry
+                
+                # Also store without the number for flexible matching
+                title_without_number = re.sub(r'^\d+\.\s*', '', line_stripped).lower().strip()
+                if title_without_number:
+                    title_to_industry[title_without_number] = current_industry
+        
+        return title_to_industry
+
+    def _get_allowed_item_numbers(self, content: str) -> Set[int]:
+        """Get the numbers of items that belong to allowed categories"""
+        category_to_numbers = self._extract_numbered_items_by_category(content)
+        allowed_numbers = set()
+        
+        for category, numbers in category_to_numbers.items():
+            if self._is_allowed_category(category):
+                allowed_numbers.update(numbers)
+        
+        return allowed_numbers
+
+    def _filter_content_by_category(self, content: str) -> str:
+        """Filter content to only include allowed categories and match press releases by title"""
+        lines = content.split('\n')
+        filtered_lines = []
+        
+        # Build mapping of titles to industries for press release matching
+        title_to_industry = self._build_title_to_industry_mapping(content)
+        allowed_numbers = self._get_allowed_item_numbers(content)
+        
+        current_section = None
+        include_current_section = False
+        in_detailed_section = False
+        current_item_number = None
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # Empty lines are preserved if we're in an allowed section
+            if not line_stripped:
+                if include_current_section or (in_detailed_section and current_item_number in allowed_numbers):
+                    filtered_lines.append(line)
+                continue
+            
+            # Check if this is a section header
+            if self._is_section_header(line_stripped):
+                current_section = line_stripped
+                include_current_section = self._is_allowed_category(current_section)
+                in_detailed_section = False
+                current_item_number = None
+                
+                # Only add the section header if it's allowed
+                if include_current_section:
+                    # Add some spacing before new sections (except first)
+                    if filtered_lines and filtered_lines[-1].strip():
+                        filtered_lines.append('')
+                    filtered_lines.append(line)
+            
+            # Check if this is a numbered item (could be title or detailed section)
+            elif re.match(r'^\d+\.', line_stripped):
+                match = re.match(r'^(\d+)\.', line_stripped)
+                if match:
+                    item_number = int(match.group(1))
+                    current_item_number = item_number
+                    
+                    # Check if this is a press release by matching title
+                    normalized_line = line_stripped.lower().strip()
+                    title_without_number = re.sub(r'^\d+\.\s*', '', line_stripped).lower().strip()
+                    
+                    matched_industry = None
+                    # Check for exact title match
+                    if normalized_line in title_to_industry:
+                        matched_industry = title_to_industry[normalized_line]
+                    elif title_without_number in title_to_industry:
+                        matched_industry = title_to_industry[title_without_number]
+                    
+                    # If we're in the initial categorized list under an allowed section
+                    if current_section and include_current_section:
+                        filtered_lines.append(line)
+                        in_detailed_section = False
+                    
+                    # If this is a press release that matches an entry from an allowed industry
+                    elif matched_industry and self._is_allowed_category(matched_industry):
+                        in_detailed_section = True
+                        # Add spacing before detailed sections
+                        if filtered_lines and filtered_lines[-1].strip():
+                            filtered_lines.append('')
+                        filtered_lines.append(line)
+                        include_current_section = False  # Override section-based logic
+                    
+                    # If this is a numbered item from an allowed category (legacy support)
+                    elif item_number in allowed_numbers:
+                        in_detailed_section = True
+                        if filtered_lines and filtered_lines[-1].strip():
+                            filtered_lines.append('')
+                        filtered_lines.append(line)
+                        include_current_section = False
+            
+            # Handle all other content
+            else:
+                # If we're in an allowed section OR we're in a detailed section for an allowed item
+                if include_current_section or (in_detailed_section and current_item_number in allowed_numbers):
+                    filtered_lines.append(line)
+                # Also include if we're in a press release section matched by title
+                elif in_detailed_section:
+                    # Check if the current press release matches an allowed industry
+                    if current_item_number:
+                        # Look for the title that started this section
+                        for prev_line in reversed(filtered_lines[-10:]):  # Check last 10 lines
+                            if re.match(rf'^{current_item_number}\.', prev_line.strip()):
+                                normalized_prev = prev_line.strip().lower()
+                                title_without_num = re.sub(r'^\d+\.\s*', '', prev_line.strip()).lower()
+                                if (normalized_prev in title_to_industry and 
+                                    self._is_allowed_category(title_to_industry[normalized_prev])) or \
+                                   (title_without_num in title_to_industry and 
+                                    self._is_allowed_category(title_to_industry[title_without_num])):
+                                    filtered_lines.append(line)
+                                break
+        
+        return '\n'.join(filtered_lines)
 
     def _get_filtering_report(self, content: str) -> Dict[str, Any]:
         """Generate a report of what was filtered during processing"""
@@ -1132,51 +1632,233 @@ class SmartTextProcessor:
         return '\n'.join(summary_parts)
 
 def create_analytics_dashboard(db_manager: DatabaseManager):
-    """Create analytics dashboard for market insights"""
-    st.markdown("### 📊 Market Intelligence Dashboard")
+    """Create comprehensive analytics dashboard with enhanced features"""
+    st.markdown("### 📊 M&A Intelligence Analytics")
     
     # Get database stats
     stats = db_manager.get_database_stats()
     
-    # Key metrics
+    if stats['total_emails'] == 0:
+        st.info("📥 No data available yet. Process some emails to see analytics!")
+        return
+    
+    # Overview metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("📧 Total Emails", stats['total_emails'])
     
     with col2:
-        st.metric("🎯 Total Deals", stats['total_deals'])
+        st.metric("🤝 Total Deals", stats['total_deals'])
     
     with col3:
-        st.metric("💰 Monetary Values", stats['total_monetary_values'])
+        st.metric("🏢 Sections", stats.get('total_sections', 0))
     
     with col4:
-        st.metric("🔄 Recent (7 days)", stats['recent_emails'])
+        st.metric("💰 Monetary Values", stats['total_monetary_values'])
     
-    # Charts
-    col1, col2 = st.columns(2)
+    # New Analytics Sections
+    tab1, tab2, tab3, tab4 = st.tabs(["💹 Deal Volume", "🏭 Sector Analysis", "🏛️ PE Firm Activity", "🔍 Search & Management"])
     
-    with col1:
-        if stats['top_sections']:
-            st.markdown("#### 📈 Top Sectors")
+    with tab1:
+        st.markdown("### 💹 Deal Volume Metrics")
+        
+        # Get deal volume data from database
+        conn = sqlite3.connect(db_manager.db_path)
+        
+        # Total volume query
+        volume_query = '''
+            SELECT 
+                SUM(total_volume) as total_vol,
+                AVG(average_volume) as avg_vol,
+                SUM(deal_count) as total_deals,
+                COUNT(*) as periods
+            FROM deal_volumes
+        '''
+        
+        try:
+            volume_data = pd.read_sql_query(volume_query, conn)
+            
+            if not volume_data.empty and volume_data['total_vol'].iloc[0]:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("💰 Total Deal Volume", f"${volume_data['total_vol'].iloc[0]:,.0f}M")
+                
+                with col2:
+                    st.metric("📊 Average Deal Size", f"${volume_data['avg_vol'].iloc[0]:,.0f}M")
+                
+                with col3:
+                    st.metric("🤝 Total Deals Processed", f"{volume_data['total_deals'].iloc[0]}")
+                
+                # Volume trend over time
+                trend_query = '''
+                    SELECT period_date, total_volume, deal_count
+                    FROM deal_volumes 
+                    ORDER BY period_date DESC 
+                    LIMIT 10
+                '''
+                trend_data = pd.read_sql_query(trend_query, conn)
+                
+                if not trend_data.empty:
+                    fig = px.line(trend_data, x='period_date', y='total_volume', 
+                                 title='Deal Volume Trend Over Time')
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("📊 No deal volume data available yet. Process emails with deal information to see metrics.")
+        except Exception as e:
+            st.info("📊 Deal volume tracking will appear here once deal data is processed.")
+        
+        conn.close()
+    
+    with tab2:
+        st.markdown("### 🏭 Deals by Sector")
+        
+        conn = sqlite3.connect(db_manager.db_path)
+        
+        try:
+            # Sector analysis
+            sector_query = '''
+                SELECT 
+                    sector_name,
+                    SUM(deal_count) as total_deals,
+                    SUM(total_value) as total_value,
+                    AVG(total_value/NULLIF(deal_count, 0)) as avg_deal_size
+                FROM sectors
+                GROUP BY sector_name
+                ORDER BY total_deals DESC
+            '''
+            sector_data = pd.read_sql_query(sector_query, conn)
+            
+            if not sector_data.empty:
+                # Sector distribution pie chart
+                fig_pie = px.pie(sector_data, values='total_deals', names='sector_name',
+                                title='Deal Distribution by Sector')
+                st.plotly_chart(fig_pie, use_container_width=True)
+                
+                # Sector value bar chart
+                fig_bar = px.bar(sector_data, x='sector_name', y='total_value',
+                               title='Total Deal Value by Sector')
+                fig_bar.update_xaxis(tickangle=45)
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+                # Sector details table
+                st.markdown("#### 📋 Sector Summary")
+                sector_data['avg_deal_size'] = sector_data['avg_deal_size'].round(2)
+                st.dataframe(sector_data, use_container_width=True)
+            else:
+                st.info("🏭 Sector analysis will appear here once deals are processed and categorized.")
+        except Exception as e:
+            st.info("🏭 Sector analysis will appear here once deals are processed and categorized.")
+        
+        conn.close()
+    
+    with tab3:
+        st.markdown("### 🏛️ PE Firm Activity")
+        
+        conn = sqlite3.connect(db_manager.db_path)
+        
+        try:
+            # PE firm analysis
+            pe_query = '''
+                SELECT 
+                    firm_name,
+                    COUNT(*) as deal_count,
+                    SUM(deal_value) as total_investment,
+                    deal_type,
+                    geographic_focus
+                FROM pe_firms
+                GROUP BY firm_name
+                ORDER BY deal_count DESC
+                LIMIT 20
+            '''
+            pe_data = pd.read_sql_query(pe_query, conn)
+            
+            if not pe_data.empty:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("#### 🏆 Most Active PE Firms")
+                    top_firms = pe_data.head(10)
+                    st.dataframe(top_firms[['firm_name', 'deal_count', 'total_investment']], 
+                               use_container_width=True)
+                
+                with col2:
+                    st.markdown("#### 📊 PE Activity by Deal Count")
+                    fig = px.bar(pe_data.head(10), x='firm_name', y='deal_count',
+                               title='Top PE Firms by Deal Activity')
+                    fig.update_xaxis(tickangle=45)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Deal type breakdown
+                type_query = '''
+                    SELECT deal_type, COUNT(*) as count
+                    FROM pe_firms
+                    GROUP BY deal_type
+                '''
+                type_data = pd.read_sql_query(type_query, conn)
+                
+                if not type_data.empty:
+                    st.markdown("#### 🔄 Deal Type Distribution")
+                    fig_type = px.pie(type_data, values='count', names='deal_type',
+                                    title='PE Deal Types')
+                    st.plotly_chart(fig_type, use_container_width=True)
+            else:
+                st.info("🏛️ PE firm activity analysis will appear here once private equity deals are detected.")
+        except Exception as e:
+            st.info("🏛️ PE firm activity analysis will appear here once private equity deals are detected.")
+        
+        conn.close()
+    
+    with tab4:
+        st.markdown("### 🔍 Search & Data Management")
+        
+        # Search functionality
+        st.markdown("#### 🔍 Search Emails")
+        search_term = st.text_input("Search for specific deals or companies...")
+        
+        if search_term:
+            search_results = db_manager.search_emails(search_term)
+            if search_results:
+                st.write(f"Found {len(search_results)} results:")
+                for result in search_results[:5]:  # Show top 5
+                    with st.expander(f"Email {result['id']} - {result['processed_date'][:10]}"):
+                        st.write(f"**Content preview:** {result['content'][:200]}...")
+                        st.write(f"**Deals:** {result['deal_count']}")
+                        st.write(f"**Sections:** {result['section_count']}")
+            else:
+                st.info("No results found for your search term.")
+        
+        # Data management
+        st.markdown("#### 🗄️ Data Management")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔄 Refresh Stats"):
+                st.rerun()
+        
+        with col2:
+            if st.button("📤 Export Data"):
+                st.info("Export functionality coming soon!")
+        
+        with col3:
+            if st.button("⚠️ Clear All Data", type="secondary"):
+                if st.session_state.get('confirm_delete', False):
+                    if db_manager.delete_all_data():
+                        st.success("All data cleared successfully!")
+                        st.session_state.confirm_delete = False
+                        st.rerun()
+                else:
+                    st.session_state.confirm_delete = True
+                    st.warning("Click again to confirm deletion!")
+        
+        # Legacy charts for compatibility
+        if stats.get('top_sections'):
+            st.markdown("#### 📈 Top Sectors (Legacy)")
             sections_df = pd.DataFrame(stats['top_sections'], columns=['Section', 'Count'])
             fig = px.bar(sections_df, x='Section', y='Count', title="Deal Distribution by Sector")
             st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        if stats['currency_distribution']:
-            st.markdown("#### 💱 Currency Distribution")
-            currency_df = pd.DataFrame(stats['currency_distribution'], columns=['Currency', 'Count', 'Total_Value'])
-            fig = px.pie(currency_df, values='Count', names='Currency', title="Currency Distribution")
-            st.plotly_chart(fig, use_container_width=True)
-    
-    # Daily activity chart
-    if stats['daily_activity']:
-        st.markdown("#### 📅 Daily Activity (Last 30 Days)")
-        activity_df = pd.DataFrame(stats['daily_activity'], columns=['Date', 'Count'])
-        activity_df['Date'] = pd.to_datetime(activity_df['Date'])
-        fig = px.line(activity_df, x='Date', y='Count', title="Daily Email Processing Activity")
-        st.plotly_chart(fig, use_container_width=True)
 
 def main():
     # Header
