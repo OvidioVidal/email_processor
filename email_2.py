@@ -341,7 +341,6 @@ class DatabaseManager:
         
         conn.close()
         return stats
-<<<<<<< HEAD
     
     def search_emails(self, search_term: str, limit: int = 20) -> List[Dict]:
         """Search emails by content"""
@@ -387,12 +386,6 @@ class SmartTextProcessor:
             'industrial: electronics',
             'services (other)'
         }
-        
-=======
-
-class SmartTextProcessor:
-    def __init__(self):
->>>>>>> parent of 0d84145 (Add sector filtering and priority sector logic)
         self.sector_keywords = {
             'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
             'technology': ['tech', 'software', 'AI', 'digital', 'data', 'cyber', 'SaaS', 'IT', 'cloud', 'app'],
@@ -658,8 +651,6 @@ class SmartTextProcessor:
         
         return '\n'.join(cleaned_lines)
 
-<<<<<<< HEAD
-=======
     def parse_deals_from_content(self, content: str) -> List[Dict[str, Any]]:
         """Parse deals with enhanced information extraction"""
         deals = []
@@ -765,8 +756,42 @@ class SmartTextProcessor:
                 return match.group(0)
         
         return 'TBD'
+    
+    def _extract_numeric_value(self, text: str) -> float:
+        """Extract numeric value from monetary text and convert to millions"""
+        if not text:
+            return 0.0
+            
+        try:
+            # Remove currency symbols and clean the text
+            cleaned = re.sub(r'[€$£¥₹]', '', text)
+            cleaned = re.sub(r'[^\d\.,bmk]', ' ', cleaned, flags=re.IGNORECASE)
+            
+            # Look for numeric values
+            numeric_match = re.search(r'([\d,\.]+)', cleaned)
+            if not numeric_match:
+                return 0.0
+                
+            # Extract the base number
+            num_str = numeric_match.group(1).replace(',', '')
+            base_value = float(num_str)
+            
+            # Handle multipliers (normalize to millions)
+            text_lower = text.lower()
+            if 'billion' in text_lower or 'bn' in text_lower or 'b' in text_lower:
+                return base_value * 1000  # Convert billions to millions
+            elif 'million' in text_lower or 'mn' in text_lower or 'm' in text_lower:
+                return base_value  # Already in millions
+            elif 'thousand' in text_lower or 'k' in text_lower:
+                return base_value / 1000  # Convert thousands to millions
+            else:
+                # Assume raw numbers are in currency units, convert to millions
+                return base_value / 1000000
+                
+        except (ValueError, AttributeError) as e:
+            # Return 0 for invalid inputs rather than raising an exception
+            return 0.0
 
->>>>>>> parent of 0d84145 (Add sector filtering and priority sector logic)
     def _is_section_header(self, line: str) -> bool:
         """Check if line is likely a section header"""
         if not line.strip():
@@ -1131,19 +1156,19 @@ def main():
         st.markdown("**Only these categories will be processed:**")
         
         allowed_cats = [
-    "Automotive",
-    "Computer software",
-    "Consumer: Foods",
-    "Consumer: Other",
-    "Consumer: Retail",
-    "Defense",
-    "Financial Services",
-    "Industrial automation",
-    "Industrial products and services",
-    "Industrial: Electronics",
-    "Services (other)"
-]
-
+            "Automotive",
+            "Computer software", 
+            "Consumer: Foods",
+            "Consumer: Other",
+            "Consumer: Retail",
+            "Defense",
+            "Financial Services",
+            "Industrial automation",
+            "Industrial products and services",
+            "Industrial: Electronics",
+            "Services (other)"
+        ]
+        
         for cat in allowed_cats:
             st.markdown(f"✅ {cat}")
         
@@ -1292,7 +1317,6 @@ Intelligence ID: intelcms-k9mrqp"""
     
             # Additional features
     if 'formatted_text' in st.session_state:
->>>>>>> parent of 0d84145 (Add sector filtering and priority sector logic)
         st.markdown("---")
         st.markdown("*Content from other categories will be automatically filtered out.*")
         
