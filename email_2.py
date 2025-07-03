@@ -1131,19 +1131,19 @@ def main():
         st.markdown("**Only these categories will be processed:**")
         
         allowed_cats = [
-            "Automotive",
-            "Computer software", 
-            "Consumer: Foods",
-            "Consumer: Other",
-            "Consumer: Retail",
-            "Defense",
-            "Financial Services",
-            "Industrial automation",
-            "Industrial products and services",
-            "Industrial: Electronics",
-            "Services (other)"
-        ]
-        
+    "Automotive",
+    "Computer software",
+    "Consumer: Foods",
+    "Consumer: Other",
+    "Consumer: Retail",
+    "Defense",
+    "Financial Services",
+    "Industrial automation",
+    "Industrial products and services",
+    "Industrial: Electronics",
+    "Services (other)"
+]
+
         for cat in allowed_cats:
             st.markdown(f"✅ {cat}")
         
