@@ -642,7 +642,7 @@ class SmartTextProcessor:
         return '\n'.join(formatted_lines)
 
     def format_for_email(self, content: str) -> str:
-        """Format raw text for email-friendly plain text matching the specific format"""
+        """Format raw text for email-friendly plain text with clickable links preserved"""
         if not content.strip():
             return "No content to format."
         
@@ -662,31 +662,35 @@ class SmartTextProcessor:
                 formatted_lines.append('')
                 continue
             
+            # Process line to ensure URLs are clickable
+            processed_line = self._make_links_clickable(line)
+            
             # Check if line is a section header (clean, simple format)
             if self._is_section_header(line):
                 # Add spacing before section headers
                 if formatted_lines and formatted_lines[-1] != '':
                     formatted_lines.append('')
-                formatted_lines.append(line)
+                formatted_lines.append(processed_line)
                 formatted_lines.append('')
             
             # Check if line is a numbered item (deal/topic)
             elif re.match(r'^\d+\.', line):
-                formatted_lines.append(line)
+                formatted_lines.append(processed_line)
                 formatted_lines.append('')  # Add blank line after numbered items
             
             # Check if line is a bullet point
             elif line.startswith('*') or line.startswith('-') or line.startswith('•'):
                 bullet_text = line[1:].strip()
-                formatted_lines.append(f'* {bullet_text}')
+                processed_bullet = self._make_links_clickable(bullet_text)
+                formatted_lines.append(f'* {processed_bullet}')
             
             # Check if line contains key metadata (Source:, Size:, etc.)
             elif ':' in line and self._is_metadata_line(line):
-                formatted_lines.append(line)
+                formatted_lines.append(processed_line)
             
             # Regular paragraph text
             else:
-                formatted_lines.append(line)
+                formatted_lines.append(processed_line)
         
         # Clean up multiple consecutive blank lines
         cleaned_lines = []
@@ -706,6 +710,36 @@ class SmartTextProcessor:
             cleaned_lines.pop()
         
         return '\n'.join(cleaned_lines)
+    
+    def _make_links_clickable(self, text: str) -> str:
+        """Make URLs in text clickable for email clients"""
+        # Pattern to match URLs (http, https, www, or domain.com patterns)
+        url_patterns = [
+            r'https?://[^\s<>"]+[^\s<>"\.,\?\!]',  # http/https URLs
+            r'www\.[^\s<>"]+[^\s<>"\.,\?\!]',       # www URLs
+            r'[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.[a-zA-Z]{2,}(?:/[^\s<>"]*)?'  # domain.com URLs
+        ]
+        
+        processed_text = text
+        
+        for pattern in url_patterns:
+            # Find all URLs in the text
+            urls = re.findall(pattern, processed_text)
+            
+            for url in urls:
+                # Ensure URL has protocol for clickability
+                if url.startswith('www.'):
+                    clickable_url = f'https://{url}'
+                elif not url.startswith(('http://', 'https://')):
+                    clickable_url = f'https://{url}'
+                else:
+                    clickable_url = url
+                
+                # Replace in text - keep original format but ensure it's a complete URL
+                if url != clickable_url:
+                    processed_text = processed_text.replace(url, clickable_url)
+        
+        return processed_text
 
     def parse_deals_from_content(self, content: str) -> List[Dict[str, Any]]:
         """Parse deals with enhanced information extraction"""
@@ -1250,6 +1284,25 @@ Intelligence ID: intelcms-k9mrqp"""
             help="Paste any raw text content. The system will automatically format it for better readability."
         )
         
+        # Database saving option - more prominent placement
+        st.markdown("---")
+        col_save, col_info = st.columns([2, 1])
+        
+        with col_save:
+            save_to_db = st.checkbox(
+                "💾 Save to database for market insights", 
+                value=True, 
+                help="Save processed data to database for trend analysis and historical tracking"
+            )
+        
+        with col_info:
+            if save_to_db:
+                st.success("✅ Will save to DB")
+            else:
+                st.warning("❌ Won't save to DB")
+        
+        st.markdown("---")
+        
         col_a, col_b = st.columns(2)
         
         with col_a:
@@ -1257,9 +1310,6 @@ Intelligence ID: intelcms-k9mrqp"""
         
         with col_b:
             clear_button = st.button("🗑️ Clear", use_container_width=True)
-        
-        # Save to database option
-        save_to_db = st.checkbox("💾 Save to database for market insights", value=True, help="Save processed data to database for trend analysis")
         
         if clear_button:
             st.rerun()
@@ -1294,13 +1344,11 @@ Intelligence ID: intelcms-k9mrqp"""
                     )
                     
                     if email_id:
-                        st.markdown(f"""
-                        <div class="database-info">
-                            <strong>✅ Data Saved to Database</strong><br>
-                            Email ID: {email_id} | Date: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 
-                            Deals: {len(key_info['deals'])} | Sections: {len(key_info['sections'])}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.success(f"✅ Data saved to database! Email ID: {email_id} | Deals: {len(key_info['deals'])} | Sections: {len(key_info['sections'])}")
+                    else:
+                        st.error("❌ Failed to save to database. Please check your data.")
+                else:
+                    st.info("ℹ️ Data processed but not saved to database (checkbox was unchecked).")
         
         # Display formatted text if available
         if 'formatted_text' in st.session_state:
@@ -1316,14 +1364,18 @@ Intelligence ID: intelcms-k9mrqp"""
             
             with tab2:
                 st.markdown("### 📧 Email-Ready Format")
-                st.info("💡 Clean format with no decorative separators - perfect for email.")
+                col_info1, col_info2 = st.columns(2)
+                with col_info1:
+                    st.info("💡 Clean format with no decorative separators - perfect for email.")
+                with col_info2:
+                    st.success("🔗 URLs are automatically made clickable when copied!")
                 
                 # Display email-formatted text in a copyable text area
                 st.text_area(
                     "Copy this text for email:",
                     value=st.session_state.email_formatted_text,
                     height=600,
-                    help="Select all (Ctrl+A / Cmd+A) and copy (Ctrl+C / Cmd+C) to paste into your email.",
+                    help="Select all (Ctrl+A / Cmd+A) and copy (Ctrl+C / Cmd+C) to paste into your email. URLs will be clickable!",
                     key="email_text_area"
                 )
                 
@@ -1335,14 +1387,14 @@ Intelligence ID: intelcms-k9mrqp"""
                 
                 with col_download:
                     # Download button for email format
-                    st.download_button(
-                        label="📧 Download Email Format",
-                        data=st.session_state.email_formatted_text,
-                        file_name=f"email_ready_text_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain",
-                        help="Download as a text file that you can copy from or attach to emails.",
-                        use_container_width=True
-                    )
+                                            st.download_button(
+                            label="📧 Download Email Format",
+                            data=st.session_state.email_formatted_text,
+                            file_name=f"email_ready_text_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            help="Download as a text file with clickable URLs - perfect for emails or attachments.",
+                            use_container_width=True
+                        )
         else:
             st.info("Ready to format your text. Paste content and click 'Format Text'")
     
