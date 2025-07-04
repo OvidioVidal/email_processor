@@ -1426,31 +1426,46 @@ class SmartTextProcessor:
         
         return press_releases
 
-    def _is_allowed_category(self, section_name: str) -> bool:
-        """Check if a section/category is in the allowed list"""
-        normalized_section = section_name.lower().strip()
+    def _is_recognized_industry(self, section_name: str) -> bool:
+        """Check if a section is a recognized industry"""
+        if not section_name:
+            return False
         
-        allowed_categories = {
-            'automotive',
-            'computer software', 
-            'consumer: foods',
-            'consumer: other',
-            'consumer: retail',
-            'defense',
-            'financial services',
-            'industrial automation',
-            'industrial products and services',
-            'industrial: electronics',
-            'services (other)'
-        }
+        section_lower = section_name.lower().strip()
         
-        # Direct match
-        if normalized_section in allowed_categories:
+        # Direct match first
+        if section_lower in self.all_industries:
             return True
         
-        # Check for partial matches (useful for variations like "Technology" vs "Computer software")
-        for allowed in allowed_categories:
-            if allowed in normalized_section or normalized_section in allowed:
+        # Check for partial matches
+        for industry in self.all_industries:
+            # Remove punctuation and compare
+            section_clean = re.sub(r'[^\w\s]', '', section_lower)
+            industry_clean = re.sub(r'[^\w\s]', '', industry)
+            
+            if section_clean == industry_clean:
+                return True
+        
+        return False
+
+    def _is_allowed_category(self, section_name: str) -> bool:
+        """Check if a section/category is in the allowed list"""
+        if not section_name:
+            return False
+        
+        section_lower = section_name.lower().strip()
+        
+        # Direct match first
+        if section_lower in self.allowed_categories:
+            return True
+        
+        # Check for partial matches (e.g., "industrial automation" should match "industrial: automation")
+        for allowed_cat in self.allowed_categories:
+            # Remove punctuation and compare
+            section_clean = re.sub(r'[^\w\s]', '', section_lower)
+            allowed_clean = re.sub(r'[^\w\s]', '', allowed_cat)
+            
+            if section_clean == allowed_clean:
                 return True
         
         return False
