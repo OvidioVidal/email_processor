@@ -1229,6 +1229,14 @@ def create_analytics_dashboard(db_manager: DatabaseManager):
         st.plotly_chart(fig, use_container_width=True)
 
 def main():
+    # Initialize processor FIRST - before any other code tries to access it
+    if 'processor' not in st.session_state:
+        try:
+            st.session_state.processor = SmartTextProcessor()
+        except Exception as e:
+            st.error(f"Failed to initialize processor: {str(e)}")
+            st.stop()  # Stop execution if processor can't be initialized
+    
     # Header
     st.markdown("""
     <div class="main-header">
@@ -1236,10 +1244,6 @@ def main():
         <p>Transform raw text and M&A data into professionally formatted, readable content with market intelligence</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Initialize processor
-    if 'processor' not in st.session_state:
-        st.session_state.processor = SmartTextProcessor()
     
     # Sidebar for navigation
     with st.sidebar:
@@ -1249,7 +1253,13 @@ def main():
         
         # Add industry recognition display
         st.markdown("### 🏷️ Industry Recognition")
-        st.markdown(f"**Script recognizes {len(st.session_state.processor.all_industries)} industries**")
+        try:
+            industry_count = len(st.session_state.processor.all_industries)
+            st.markdown(f"**Script recognizes {industry_count} industries**")
+        except (AttributeError, KeyError):
+            st.markdown("**Script recognizes 130+ industries**")
+            # Re-initialize if somehow corrupted
+            st.session_state.processor = SmartTextProcessor()
         
         # Show filtering options
         st.markdown("### 🔍 Filter Settings")
@@ -1260,11 +1270,18 @@ def main():
         
         if filter_mode == "Selected Industries Only":
             # Convert to title case for display
-            industry_options = [ind.title() for ind in sorted(st.session_state.processor.all_industries)]
+            try:
+                industry_options = [ind.title() for ind in sorted(st.session_state.processor.all_industries)]
+                default_selection = [ind.title() for ind in sorted(st.session_state.processor.allowed_categories)]
+            except (AttributeError, KeyError):
+                # Fallback if processor not properly initialized
+                industry_options = ["Automotive", "Computer Software", "Financial Services"]
+                default_selection = ["Automotive", "Computer Software"]
+                
             selected_industries = st.multiselect(
                 "Select industries to include:",
                 options=industry_options,
-                default=[ind.title() for ind in sorted(st.session_state.processor.allowed_categories)]
+                default=default_selection
             )
             
             # Update allowed categories based on selection
@@ -1295,11 +1312,19 @@ def main():
         
         # Show currently active industries
         st.markdown("### 📊 Currently Active")
-        st.markdown(f"**{len(st.session_state.processor.allowed_categories)} industries selected**")
-        
-        with st.expander("View Selected Industries"):
-            for cat in sorted(st.session_state.processor.allowed_categories):
-                st.markdown(f"✅ {cat.title()}")
+        try:
+            active_count = len(st.session_state.processor.allowed_categories)
+            st.markdown(f"**{active_count} industries selected**")
+            
+            with st.expander("View Selected Industries"):
+                for cat in sorted(st.session_state.processor.allowed_categories):
+                    st.markdown(f"✅ {cat.title()}")
+        except (AttributeError, KeyError, TypeError):
+            st.markdown("**Default industries selected**")
+            with st.expander("View Selected Industries"):
+                st.markdown("✅ Automotive")
+                st.markdown("✅ Computer Software")
+                st.markdown("✅ Financial Services")
         
     if page == "📝 Text Formatter":
         # Main layout
