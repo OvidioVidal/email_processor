@@ -372,32 +372,104 @@ class SmartTextProcessor:
     def __init__(self):
         self.db_manager = DatabaseManager()
         
-        # Define allowed categories - only these will be processed
+        # Comprehensive list of all recognizable industries
+        self.all_industries = {
+            'automotive', 'chemicals and materials', 'computer software', 'construction', 
+            'consumer: foods', 'consumer: other', 'consumer: retail', 'energy', 
+            'financial services', 'industrial automation', 'industrial products and services', 
+            'industrial: electronics', 'internet / ecommerce', 'leisure', 'media', 
+            'real estate', 'services (other)', 'telecommunications: carriers', 'transportation',
+            'healthcare', 'private equity', 'banking', 'investment management', 'asset management',
+            'insurance', 'venture capital', 'fund management', 'wealth management',
+            'renewable energy', 'solar power', 'wind power', 'hydropower', 'battery storage',
+            'clean energy', 'oil and gas', 'utilities', 'infrastructure', 'logistics',
+            'distribution', 'warehousing', 'supply chain', 'mining', 'steel', 'metals',
+            'materials processing', 'machine tools', 'manufacturing', 'engineering',
+            'aerospace', 'defense', 'maritime', 'shipbuilding', 'aviation', 'airlines',
+            'sports', 'entertainment', 'gaming', 'education', 'schools', 'hospitality',
+            'hotels', 'restaurants', 'food services', 'agriculture', 'agrifood',
+            'biotechnology', 'pharmaceuticals', 'life sciences', 'medical devices',
+            'digital health', 'technology', 'software', 'hardware', 'semiconductors',
+            'electronics', 'artificial intelligence', 'machine learning', 'quantum computing',
+            'cybersecurity', 'data analytics', 'cloud computing', 'telecom', 'mobile networks',
+            'broadband', 'fiber optics', 'broadcasting', 'publishing', 'advertising',
+            'marketing', 'professional services', 'consulting', 'legal services',
+            'accounting', 'audit', 'human resources', 'recruitment', 'training',
+            'facilities management', 'cleaning services', 'security services',
+            'environmental services', 'waste management', 'water treatment', 'hvac',
+            'building services', 'property management', 'real estate investment', 'reits',
+            'social housing', 'student housing', 'retail', 'e-commerce', 'fashion',
+            'luxury goods', 'textiles', 'footwear', 'jewelry', 'cosmetics',
+            'beauty products', 'personal care', 'food production', 'beverages', 'dairy',
+            'meat processing', 'seafood', 'packaging', 'paper', 'forestry', 'timber',
+            'printing', 'chemicals', 'petrochemicals', 'plastics', 'rubber', 'glass',
+            'ceramics', 'construction materials', 'building products', 'cement', 'aggregates'
+        }
+        
+        # Default allowed categories (can be modified by user)
         self.allowed_categories = {
-            'automotive',
-            'computer software',
-            'consumer: foods',
-            'consumer: other', 
-            'consumer: retail',
-            'defense',
-            'financial services',
-            'industrial automation',
-            'industrial products and services',
-            'industrial: electronics',
-            'services (other)'
+            'automotive', 'computer software', 'consumer: foods', 'consumer: other', 
+            'consumer: retail', 'defense', 'financial services', 'industrial automation',
+            'industrial products and services', 'industrial: electronics', 'services (other)'
         }
         self.sector_keywords = {
             'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
+            'chemicals and materials': ['chemical', 'materials', 'plastic', 'polymer', 'coating', 'paint'],
             'computer software': ['software', 'app', 'platform', 'SaaS', 'cloud', 'AI', 'digital', 'tech'],
-            'consumer: foods': ['food', 'beverage', 'restaurant', 'dining', 'nutrition', 'snack', 'drink'],
-            'consumer: other': ['consumer', 'retail', 'brand', 'lifestyle', 'beauty', 'personal care'],
-            'consumer: retail': ['retail', 'store', 'shopping', 'ecommerce', 'fashion', 'apparel', 'goods'],
-            'defense': ['defense', 'military', 'aerospace', 'security', 'weapons', 'defense contractor'],
-            'financial services': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund', 'fintech', 'payment'],
-            'industrial automation': ['automation', 'robotics', 'manufacturing', 'industrial', 'machinery'],
-            'industrial products and services': ['industrial', 'manufacturing', 'engineering', 'equipment', 'machinery'],
-            'industrial: electronics': ['electronics', 'semiconductor', 'components', 'circuits', 'hardware'],
-            'services (other)': ['services', 'consulting', 'professional', 'outsourcing', 'support']
+            'construction': ['construction', 'building', 'contractor', 'infrastructure'],
+            'consumer: foods': ['food', 'beverage', 'restaurant', 'dining', 'nutrition'],
+            'consumer: other': ['consumer', 'brand', 'lifestyle', 'beauty', 'personal care'],
+            'consumer: retail': ['retail', 'store', 'shopping', 'ecommerce', 'fashion'],
+            'energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'solar', 'wind'],
+            'financial services': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund'],
+            'industrial automation': ['automation', 'robotics', 'manufacturing', 'machinery'],
+            'industrial products and services': ['industrial', 'manufacturing', 'engineering', 'equipment'],
+            'industrial: electronics': ['electronics', 'semiconductor', 'components', 'circuits'],
+            'internet / ecommerce': ['internet', 'ecommerce', 'online', 'digital', 'marketplace'],
+            'leisure': ['leisure', 'entertainment', 'gaming', 'sports', 'travel', 'tourism'],
+            'media': ['media', 'broadcasting', 'publishing', 'content', 'advertising'],
+            'real estate': ['real estate', 'property', 'reit', 'building', 'development'],
+            'services (other)': ['services', 'consulting', 'professional', 'outsourcing'],
+            'telecommunications: carriers': ['telecom', 'telecommunications', 'wireless', 'network'],
+            'transportation': ['transportation', 'logistics', 'shipping', 'freight', 'airline'],
+            'healthcare': ['health', 'medical', 'hospital', 'clinic', 'healthcare'],
+            'private equity': ['private equity', 'pe', 'buyout', 'private investment'],
+            'banking': ['bank', 'banking', 'commercial bank', 'investment bank'],
+            'investment management': ['investment management', 'asset management', 'portfolio'],
+            'insurance': ['insurance', 'insurer', 'underwriting', 'claims'],
+            'venture capital': ['venture capital', 'vc', 'startup', 'early stage'],
+            'renewable energy': ['renewable', 'clean energy', 'green energy', 'sustainable'],
+            'oil and gas': ['oil', 'gas', 'petroleum', 'drilling', 'refining'],
+            'utilities': ['utility', 'utilities', 'power', 'electricity', 'water'],
+            'infrastructure': ['infrastructure', 'roads', 'bridges', 'tunnels'],
+            'logistics': ['logistics', 'supply chain', 'distribution', 'warehousing'],
+            'mining': ['mining', 'mineral', 'extraction', 'quarry'],
+            'steel': ['steel', 'iron', 'metallurgy', 'steelmaking'],
+            'aerospace': ['aerospace', 'aircraft', 'space', 'satellite'],
+            'defense': ['defense', 'military', 'weapons', 'security'],
+            'maritime': ['maritime', 'shipping', 'ports', 'vessels'],
+            'aviation': ['aviation', 'airline', 'aircraft', 'airport'],
+            'biotechnology': ['biotech', 'biotechnology', 'life sciences', 'genetics'],
+            'pharmaceuticals': ['pharma', 'pharmaceutical', 'drugs', 'medicine'],
+            'technology': ['technology', 'tech', 'innovation', 'R&D'],
+            'software': ['software', 'applications', 'programs', 'coding'],
+            'hardware': ['hardware', 'components', 'equipment', 'devices'],
+            'cybersecurity': ['cybersecurity', 'security', 'cyber', 'protection'],
+            'telecom': ['telecom', 'telecommunications', 'communications'],
+            'broadcasting': ['broadcasting', 'television', 'radio', 'streaming'],
+            'publishing': ['publishing', 'books', 'magazines', 'newspapers'],
+            'advertising': ['advertising', 'marketing', 'promotion', 'campaigns'],
+            'consulting': ['consulting', 'advisory', 'consulting services'],
+            'legal services': ['legal', 'law', 'attorney', 'lawyer'],
+            'accounting': ['accounting', 'audit', 'tax', 'financial services'],
+            'retail': ['retail', 'stores', 'shopping', 'consumer goods'],
+            'fashion': ['fashion', 'apparel', 'clothing', 'textiles'],
+            'food production': ['food production', 'agriculture', 'farming'],
+            'beverages': ['beverages', 'drinks', 'brewing', 'distilling'],
+            'packaging': ['packaging', 'containers', 'wrapping'],
+            'chemicals': ['chemicals', 'chemical processing', 'petrochemicals'],
+            'plastics': ['plastics', 'polymer', 'synthetic materials'],
+            'cement': ['cement', 'concrete', 'building materials']
         }
         
         self.geo_keywords = {
@@ -409,6 +481,28 @@ class SmartTextProcessor:
             'china': ['china', 'chinese', 'beijing', 'shanghai'],
             'asia': ['asia', 'asian', 'japan', 'singapore', 'hong kong']
         }
+
+    def _is_recognized_industry(self, section_name: str) -> bool:
+        """Check if a section is a recognized industry"""
+        if not section_name:
+            return False
+        
+        section_lower = section_name.lower().strip()
+        
+        # Direct match first
+        if section_lower in self.all_industries:
+            return True
+        
+        # Check for partial matches
+        for industry in self.all_industries:
+            # Remove punctuation and compare
+            section_clean = re.sub(r'[^\w\s]', '', section_lower)
+            industry_clean = re.sub(r'[^\w\s]', '', industry)
+            
+            if section_clean == industry_clean:
+                return True
+        
+        return False
 
     def _is_allowed_category(self, section_name: str) -> bool:
         """Check if a section category is in the allowed list"""
@@ -556,7 +650,7 @@ class SmartTextProcessor:
                 formatted_lines.append('')
                 continue
             
-            # Check if line is a section header (single word/short phrase, all caps or title case)
+            # Check if line is a section header (recognized industry)
             if self._is_section_header(line):
                 formatted_lines.append(f'<div class="section-header">📊 {line.upper()}</div>')
             
@@ -795,30 +889,21 @@ class SmartTextProcessor:
             return 0.0
 
     def _is_section_header(self, line: str) -> bool:
-        """Check if line is likely a section header"""
+        """Check if line is likely a section header - now checks against all recognized industries"""
         if not line.strip():
             return False
             
-        words = line.split()
         line_clean = line.strip()
+        
+        # First check if it's a recognized industry
+        if self._is_recognized_industry(line_clean):
+            return True
         
         # Exclude common press release patterns that shouldn't be treated as section headers
         press_release_patterns = [
-            r'press release',
-            r'announces',
-            r'reports',
-            r'declares',
-            r'completes',
-            r'enters into',
-            r'signs',
-            r'agrees to',
-            r'launches',
-            r'unveils',
-            r'introduces',
-            r'expands',
-            r'acquires',
-            r'merges with',
-            r'partners with'
+            r'press release', r'announces', r'reports', r'declares', r'completes',
+            r'enters into', r'signs', r'agrees to', r'launches', r'unveils',
+            r'introduces', r'expands', r'acquires', r'merges with', r'partners with'
         ]
         
         # Check if line contains press release language
@@ -827,25 +912,26 @@ class SmartTextProcessor:
                 return False
         
         # Exclude lines that are clearly content, not headers
-        if (re.search(r'\b(said|stated|reported|according to|sources|today|yesterday|this week|last month)\b', line_clean, re.IGNORECASE) or
-            re.search(r'\b(the company|the firm|the group|executives|management|ceo|cfo)\b', line_clean, re.IGNORECASE) or
-            re.search(r'\b(will|would|could|should|may|might|is expected|plans to)\b', line_clean, re.IGNORECASE)):
-            return False
+        content_patterns = [
+            r'\b(said|stated|reported|according to|sources|today|yesterday|this week|last month)\b',
+            r'\b(the company|the firm|the group|executives|management|ceo|cfo)\b',
+            r'\b(will|would|could|should|may|might|is expected|plans to)\b'
+        ]
         
-        # More strict criteria for section headers
-        return (len(words) <= 4 and  # Allow up to 4 words for headers like "Industrial: Electronics"
-                len(line_clean) < 60 and    # Reasonable length limit
+        for pattern in content_patterns:
+            if re.search(pattern, line_clean, re.IGNORECASE):
+                return False
+        
+        # Check if it looks like a typical industry header
+        words = line_clean.split()
+        return (len(words) <= 6 and  # Allow more words for complex industry names
+                len(line_clean) < 80 and  # Increased length limit
                 not line_clean.startswith('*') and
                 not line_clean.startswith('-') and 
                 not line_clean.startswith('•') and
                 not re.match(r'^\d+\.', line_clean) and  # Not a numbered item
                 not any(char in line_clean for char in ['(', ')', '€', '$', '£']) and  # No monetary symbols
-                not line_clean.lower().startswith('source:') and  # Not metadata
-                not line_clean.lower().startswith('size:') and
-                not line_clean.lower().startswith('grade:') and
-                not line_clean.lower().startswith('intelligence') and
-                not line_clean.lower().startswith('alert:') and
-                (':' not in line_clean.lower() or line_clean.count(':') == 1) and  # Allow one colon for "Consumer: Foods" format
+                not line_clean.lower().startswith(('source:', 'size:', 'grade:', 'intelligence', 'alert:')) and
                 not re.search(r'\d{4}', line_clean) and  # No years
                 not re.search(r'[A-Z]{2,}\s+\d', line_clean))  # No currency codes with numbers
 
@@ -1152,26 +1238,51 @@ def main():
         page = st.selectbox("Choose Function:", 
                            ["📝 Text Formatter", "📊 Analytics Dashboard", "🔍 Search History"])
         
-        # Add allowed categories display
-        st.markdown("### 🏷️ Allowed Categories")
-        st.markdown("**Only these categories will be processed:**")
+        # Add industry recognition display
+        st.markdown("### 🏷️ Industry Recognition")
+        st.markdown(f"**Script recognizes {len(st.session_state.processor.all_industries)} industries**")
         
-        allowed_cats = [
-            "Automotive",
-            "Computer software",
-            "Consumer: Foods",
-            "Consumer: Other",
-            "Consumer: Retail",
-            "Defense",
-            "Financial Services",
-            "Industrial automation",
-            "Industrial products and services",
-            "Industrial: Electronics",
-            "Services (other)"
-        ]
+        # Show filtering options
+        st.markdown("### 🔍 Filter Settings")
+        filter_mode = st.selectbox(
+            "Choose filtering mode:",
+            ["All Industries", "Selected Industries Only", "Default Set"]
+        )
         
-        for cat in allowed_cats:
-            st.markdown(f"✅ {cat}")
+        if filter_mode == "Selected Industries Only":
+            # Convert to title case for display
+            industry_options = [ind.title() for ind in sorted(st.session_state.processor.all_industries)]
+            selected_industries = st.multiselect(
+                "Select industries to include:",
+                options=industry_options,
+                default=[ind.title() for ind in sorted(st.session_state.processor.allowed_categories)]
+            )
+            
+            # Update allowed categories based on selection
+            if selected_industries:
+                st.session_state.processor.allowed_categories = {
+                    ind.lower() for ind in selected_industries
+                }
+        elif filter_mode == "All Industries":
+            # Include all industries
+            st.session_state.processor.allowed_categories = st.session_state.processor.all_industries.copy()
+            st.success("✅ All industries included")
+        else:  # Default Set
+            # Reset to default
+            st.session_state.processor.allowed_categories = {
+                'automotive', 'computer software', 'consumer: foods', 'consumer: other', 
+                'consumer: retail', 'defense', 'financial services', 'industrial automation',
+                'industrial products and services', 'industrial: electronics', 'services (other)'
+            }
+            st.info("🔄 Using default industry set")
+        
+        # Show currently active industries
+        st.markdown("### 📊 Currently Active")
+        st.markdown(f"**{len(st.session_state.processor.allowed_categories)} industries selected**")
+        
+        with st.expander("View Selected Industries"):
+            for cat in sorted(st.session_state.processor.allowed_categories):
+                st.markdown(f"✅ {cat.title()}")
         
     if page == "📝 Text Formatter":
         # Main layout
@@ -1195,13 +1306,13 @@ Consumer: Foods
 
 4. Moyca attracts interest from industrial, financial groups - report (translated)
 
-Consumer: Other
+Healthcare
 
-5. Beauty brand seeks strategic investor for expansion
+5. Medical device company announces expansion into European markets
 
-Defense
+Renewable Energy
 
-6. Aerospace company announces defense contract acquisition
+6. Solar power developer secures EUR 300m funding for project portfolio
 
 Financial Services
 
@@ -1209,13 +1320,21 @@ Financial Services
 
 8. Athora in talks to acquire PIC for up to GBP 5bn – report
 
-Industrial automation
+Biotechnology
 
-9. Robotics firm secures EUR 150m funding round
+9. Biotech firm announces breakthrough in gene therapy research
 
-Services (other)
+Real Estate
 
-10. Consulting firm announces merger with rival
+10. REIT announces acquisition of commercial property portfolio
+
+Transportation
+
+11. Logistics company expands with EUR 200m acquisition
+
+Cybersecurity
+
+12. Security firm announces merger with competitor
 
 1. Daimler Truck, Volvo launch software JV Coretura
 
