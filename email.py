@@ -1103,6 +1103,41 @@ class SmartTextProcessor:
             
         return pe_firms
 
+    def _extract_numeric_value(self, text: str) -> float:
+        """Extract numeric value from monetary text and convert to millions"""
+        if not text:
+            return 0.0
+            
+        try:
+            # Remove currency symbols and clean the text
+            cleaned = re.sub(r'[€$£¥₹]', '', text)
+            cleaned = re.sub(r'[^\d\.,bmk]', ' ', cleaned, flags=re.IGNORECASE)
+            
+            # Look for numeric values
+            numeric_match = re.search(r'([\d,\.]+)', cleaned)
+            if not numeric_match:
+                return 0.0
+                
+            # Extract the base number
+            num_str = numeric_match.group(1).replace(',', '')
+            base_value = float(num_str)
+            
+            # Handle multipliers (normalize to millions)
+            text_lower = text.lower()
+            if 'billion' in text_lower or 'bn' in text_lower or 'b' in text_lower:
+                return base_value * 1000  # Convert billions to millions
+            elif 'million' in text_lower or 'mn' in text_lower or 'm' in text_lower:
+                return base_value  # Already in millions
+            elif 'thousand' in text_lower or 'k' in text_lower:
+                return base_value / 1000  # Convert thousands to millions
+            else:
+                # Assume raw numbers are in currency units, convert to millions
+                return base_value / 1000000
+                
+        except (ValueError, AttributeError) as e:
+            # Return 0 for invalid inputs rather than raising an exception
+            return 0.0
+
     def analyze_deals_by_sector(self, deals: List[Dict]) -> Dict[str, Any]:
         """Analyze deals grouped by sector"""
         sector_analysis = {}
