@@ -457,46 +457,30 @@ class SmartTextProcessor:
         # Define allowed categories - only these will be processed
         self.allowed_categories = {
             'automotive',
-            'chemicals and materials',
             'computer software',
-            'construction',
             'consumer: foods',
             'consumer: other', 
             'consumer: retail',
-            'energy',
+            'defense',
             'financial services',
             'industrial automation',
             'industrial products and services',
             'industrial: electronics',
-            'internet / ecommerce',
-            'leisure',
-            'media',
-            'real estate',
-            'services (other)',
-            'telecommunications: carriers',
-            'transportation'
+            'services (other)'
         }
         
         self.sector_keywords = {
             'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
-            'chemicals and materials': ['chemical', 'materials', 'plastic', 'polymer', 'coating', 'paint', 'adhesive'],
             'computer software': ['software', 'app', 'platform', 'SaaS', 'cloud', 'AI', 'digital', 'tech'],
-            'construction': ['construction', 'building', 'contractor', 'infrastructure', 'cement', 'concrete'],
             'consumer: foods': ['food', 'beverage', 'restaurant', 'dining', 'nutrition', 'snack', 'drink'],
             'consumer: other': ['consumer', 'retail', 'brand', 'lifestyle', 'beauty', 'personal care'],
             'consumer: retail': ['retail', 'store', 'shopping', 'ecommerce', 'fashion', 'apparel', 'goods'],
-            'energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'solar', 'wind', 'nuclear', 'utility'],
+            'defense': ['defense', 'military', 'aerospace', 'security', 'weapons', 'defense contractor'],
             'financial services': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund', 'fintech', 'payment'],
             'industrial automation': ['automation', 'robotics', 'manufacturing', 'industrial', 'machinery'],
             'industrial products and services': ['industrial', 'manufacturing', 'engineering', 'equipment', 'machinery'],
             'industrial: electronics': ['electronics', 'semiconductor', 'components', 'circuits', 'hardware'],
-            'internet / ecommerce': ['internet', 'ecommerce', 'online', 'digital', 'marketplace', 'platform'],
-            'leisure': ['leisure', 'entertainment', 'gaming', 'sports', 'travel', 'tourism', 'hospitality'],
-            'media': ['media', 'broadcasting', 'publishing', 'content', 'advertising', 'marketing'],
-            'real estate': ['real estate', 'property', 'reit', 'building', 'development', 'commercial'],
-            'services (other)': ['services', 'consulting', 'professional', 'outsourcing', 'support'],
-            'telecommunications: carriers': ['telecom', 'telecommunications', 'wireless', 'network', 'carrier', 'mobile'],
-            'transportation': ['transportation', 'logistics', 'shipping', 'freight', 'airline', 'railway']
+            'services (other)': ['services', 'consulting', 'professional', 'outsourcing', 'support']
         }
         
         self.geo_keywords = {

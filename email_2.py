@@ -375,45 +375,29 @@ class SmartTextProcessor:
         # Define allowed categories - only these will be processed
         self.allowed_categories = {
             'automotive',
-            'chemicals and materials',
             'computer software',
-            'construction',
             'consumer: foods',
             'consumer: other', 
             'consumer: retail',
-            'energy',
+            'defense',
             'financial services',
             'industrial automation',
             'industrial products and services',
             'industrial: electronics',
-            'internet / ecommerce',
-            'leisure',
-            'media',
-            'real estate',
-            'services (other)',
-            'telecommunications: carriers',
-            'transportation'
+            'services (other)'
         }
         self.sector_keywords = {
             'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
-            'chemicals and materials': ['chemical', 'materials', 'plastic', 'polymer', 'coating', 'paint', 'adhesive'],
             'computer software': ['software', 'app', 'platform', 'SaaS', 'cloud', 'AI', 'digital', 'tech'],
-            'construction': ['construction', 'building', 'contractor', 'infrastructure', 'cement', 'concrete'],
             'consumer: foods': ['food', 'beverage', 'restaurant', 'dining', 'nutrition', 'snack', 'drink'],
             'consumer: other': ['consumer', 'retail', 'brand', 'lifestyle', 'beauty', 'personal care'],
             'consumer: retail': ['retail', 'store', 'shopping', 'ecommerce', 'fashion', 'apparel', 'goods'],
-            'energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'solar', 'wind', 'nuclear', 'utility'],
+            'defense': ['defense', 'military', 'aerospace', 'security', 'weapons', 'defense contractor'],
             'financial services': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund', 'fintech', 'payment'],
             'industrial automation': ['automation', 'robotics', 'manufacturing', 'industrial', 'machinery'],
             'industrial products and services': ['industrial', 'manufacturing', 'engineering', 'equipment', 'machinery'],
             'industrial: electronics': ['electronics', 'semiconductor', 'components', 'circuits', 'hardware'],
-            'internet / ecommerce': ['internet', 'ecommerce', 'online', 'digital', 'marketplace', 'platform'],
-            'leisure': ['leisure', 'entertainment', 'gaming', 'sports', 'travel', 'tourism', 'hospitality'],
-            'media': ['media', 'broadcasting', 'publishing', 'content', 'advertising', 'marketing'],
-            'real estate': ['real estate', 'property', 'reit', 'building', 'development', 'commercial'],
-            'services (other)': ['services', 'consulting', 'professional', 'outsourcing', 'support'],
-            'telecommunications: carriers': ['telecom', 'telecommunications', 'wireless', 'network', 'carrier', 'mobile'],
-            'transportation': ['transportation', 'logistics', 'shipping', 'freight', 'airline', 'railway']
+            'services (other)': ['services', 'consulting', 'professional', 'outsourcing', 'support']
         }
         
         self.geo_keywords = {
@@ -1174,24 +1158,16 @@ def main():
         
         allowed_cats = [
             "Automotive",
-            "Chemicals and materials",
             "Computer software",
-            "Construction",
             "Consumer: Foods",
             "Consumer: Other",
             "Consumer: Retail",
-            "Energy",
+            "Defense",
             "Financial Services",
             "Industrial automation",
             "Industrial products and services",
             "Industrial: Electronics",
-            "Internet / ecommerce",
-            "Leisure",
-            "Media",
-            "Real Estate",
-            "Services (other)",
-            "Telecommunications: Carriers",
-            "Transportation"
+            "Services (other)"
         ]
         
         for cat in allowed_cats:
@@ -1209,39 +1185,37 @@ def main():
 
 1. Daimler Truck, Volvo launch software JV Coretura
 
-2. VivoPower secures USD 121m investment led by Abdulaziz bin Turki
-
-Chemicals and materials
-
-3. Socomore in exclusive talks to raise over EUR 100m (translated)
-
 Computer software
 
-4. Aya Healthcare acquires Locum's Nest
+2. Aya Healthcare acquires Locum's Nest
 
-5. TTC Group acquires Think Eleven
+3. TTC Group acquires Think Eleven
 
 Consumer: Foods
 
-6. Moyca attracts interest from industrial, financial groups - report (translated)
+4. Moyca attracts interest from industrial, financial groups - report (translated)
 
-Energy
+Consumer: Other
 
-7. Solar power company seeks strategic investor
+5. Beauty brand seeks strategic investor for expansion
 
-8. Naturgy voluntary takeover bid gets 86.37% acceptance
+Defense
+
+6. Aerospace company announces defense contract acquisition
 
 Financial Services
 
-9. Metro Bank majority owner Gilinski considers sale of stake – report
+7. Metro Bank majority owner Gilinski considers sale of stake – report
 
-10. Athora in talks to acquire PIC for up to GBP 5bn – report
+8. Athora in talks to acquire PIC for up to GBP 5bn – report
 
-Transportation
+Industrial automation
 
-11. Logistics company seeks EUR 200m for European expansion
+9. Robotics firm secures EUR 150m funding round
 
-12. Railway operator announces acquisition of freight division
+Services (other)
+
+10. Consulting firm announces merger with rival
 
 1. Daimler Truck, Volvo launch software JV Coretura
 
