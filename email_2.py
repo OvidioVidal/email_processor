@@ -408,7 +408,7 @@ class SmartTextProcessor:
         
         # Default allowed categories (can be modified by user)
         self.allowed_categories = {
-            'automotive', 'computer software', 'consumer: foods', 'consumer: other', 
+            'automotive', 'chemicals and materials', 'computer software', 'consumer: foods', 'consumer: other', 
             'consumer: retail', 'defense', 'financial services', 'industrial automation',
             'industrial products and services', 'industrial: electronics', 'services (other)'
         }
