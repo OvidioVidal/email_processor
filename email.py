@@ -573,6 +573,18 @@ class SmartTextProcessor:
         
         return allowed_numbers
 
+    def _get_item_number_to_category_mapping(self, content: str) -> Dict[int, str]:
+        """Create a mapping from item numbers to their industry categories"""
+        category_to_numbers = self._extract_numbered_items_by_category(content)
+        number_to_category = {}
+        
+        for category, numbers in category_to_numbers.items():
+            if self._is_allowed_category(category):  # Only include allowed categories
+                for number in numbers:
+                    number_to_category[number] = category
+        
+        return number_to_category
+
     def _filter_content_by_category(self, content: str) -> str:
         """Filter content to only include allowed categories and their corresponding press releases"""
         lines = content.split('\n')
@@ -650,8 +662,13 @@ class SmartTextProcessor:
         if not filtered_content.strip():
             return '<div class="section-header">⚠️ NO ALLOWED CATEGORIES FOUND</div><p style="color: #e74c3c; margin: 1rem 0;">The input text does not contain any of the allowed categories. Please check if the section headers match the permitted categories.</p>'
         
+        # Get mapping of item numbers to their industry categories
+        number_to_category = self._get_item_number_to_category_mapping(content)
+        
         lines = filtered_content.split('\n')
         formatted_lines = []
+        current_section = None
+        in_categorized_section = False
         
         for line in lines:
             line = line.strip()
@@ -661,11 +678,29 @@ class SmartTextProcessor:
             
             # Check if line is a section header (recognized industry)
             if self._is_section_header(line):
+                current_section = line
+                in_categorized_section = True
                 formatted_lines.append(f'<div class="section-header">📊 {line.upper()}</div>')
             
             # Check if line is a numbered item (deal/topic)
             elif re.match(r'^\d+\.', line):
+                # Extract the number
+                match = re.match(r'^(\d+)\.', line)
+                if match:
+                    item_number = int(match.group(1))
+                    
+                    # If this is a detailed press release (not in categorized section) 
+                    # and we know its industry, add the industry header
+                    if not in_categorized_section and item_number in number_to_category:
+                        industry = number_to_category[item_number]
+                        # Add industry header before the numbered item
+                        if formatted_lines and formatted_lines[-1].strip():
+                            formatted_lines.append('')  # Add spacing
+                        formatted_lines.append(f'<div class="section-header">📊 {industry.upper()}</div>')
+                
                 formatted_lines.append(f'<h3 style="color: #2c3e50; margin-top: 2rem; margin-bottom: 1rem;">🔸 {line}</h3>')
+                # After a numbered item, we're no longer in the categorized section
+                in_categorized_section = False
             
             # Check if line is a bullet point
             elif line.startswith('*') or line.startswith('-') or line.startswith('•'):
@@ -702,8 +737,13 @@ class SmartTextProcessor:
             return "NO ALLOWED CATEGORIES FOUND\n\nThe input text does not contain any of the allowed categories.\nPlease check if the section headers match the permitted categories:\n\n" + \
                    "\n".join(f"• {cat.title()}" for cat in sorted(self.allowed_categories))
         
+        # Get mapping of item numbers to their industry categories
+        number_to_category = self._get_item_number_to_category_mapping(content)
+        
         lines = filtered_content.split('\n')
         formatted_lines = []
+        current_section = None
+        in_categorized_section = False
         
         for line in lines:
             line = line.strip()
@@ -713,6 +753,8 @@ class SmartTextProcessor:
             
             # Check if line is a section header (clean, simple format)
             if self._is_section_header(line):
+                current_section = line
+                in_categorized_section = True
                 # Add spacing before section headers
                 if formatted_lines and formatted_lines[-1] != '':
                     formatted_lines.append('')
@@ -721,8 +763,25 @@ class SmartTextProcessor:
             
             # Check if line is a numbered item (deal/topic)
             elif re.match(r'^\d+\.', line):
+                # Extract the number
+                match = re.match(r'^(\d+)\.', line)
+                if match:
+                    item_number = int(match.group(1))
+                    
+                    # If this is a detailed press release (not in categorized section) 
+                    # and we know its industry, add the industry header
+                    if not in_categorized_section and item_number in number_to_category:
+                        industry = number_to_category[item_number]
+                        # Add industry header before the numbered item
+                        if formatted_lines and formatted_lines[-1] != '':
+                            formatted_lines.append('')  # Add spacing
+                        formatted_lines.append(industry.upper())
+                        formatted_lines.append('')  # Add spacing after header
+                
                 formatted_lines.append(line)
                 formatted_lines.append('')  # Add blank line after numbered items
+                # After a numbered item, we're no longer in the categorized section
+                in_categorized_section = False
             
             # Check if line is a bullet point
             elif line.startswith('*') or line.startswith('-') or line.startswith('•'):
