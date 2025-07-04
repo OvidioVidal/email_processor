@@ -375,27 +375,45 @@ class SmartTextProcessor:
         # Define allowed categories - only these will be processed
         self.allowed_categories = {
             'automotive',
+            'chemicals and materials',
             'computer software',
+            'construction',
             'consumer: foods',
             'consumer: other', 
             'consumer: retail',
-            'defense',
+            'energy',
             'financial services',
             'industrial automation',
             'industrial products and services',
             'industrial: electronics',
-            'services (other)'
+            'internet / ecommerce',
+            'leisure',
+            'media',
+            'real estate',
+            'services (other)',
+            'telecommunications: carriers',
+            'transportation'
         }
         self.sector_keywords = {
             'automotive': ['auto', 'car', 'vehicle', 'motor', 'automotive', 'tesla', 'ford', 'bmw'],
-            'technology': ['tech', 'software', 'AI', 'digital', 'data', 'cyber', 'SaaS', 'IT', 'cloud', 'app'],
-            'financial': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund', 'fintech'],
-            'industrial': ['construction', 'industrial', 'manufacturing', 'engineering', 'chemical', 'steel'],
-            'energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'solar', 'wind', 'nuclear'],
-            'healthcare': ['health', 'medical', 'pharma', 'biotech', 'hospital', 'drug', 'medicine'],
-            'consumer': ['retail', 'consumer', 'food', 'beauty', 'fashion', 'beverage', 'brand'],
-            'real_estate': ['real estate', 'property', 'reit', 'building', 'development'],
-            'agriculture': ['agriculture', 'farming', 'food', 'crop', 'livestock']
+            'chemicals and materials': ['chemical', 'materials', 'plastic', 'polymer', 'coating', 'paint', 'adhesive'],
+            'computer software': ['software', 'app', 'platform', 'SaaS', 'cloud', 'AI', 'digital', 'tech'],
+            'construction': ['construction', 'building', 'contractor', 'infrastructure', 'cement', 'concrete'],
+            'consumer: foods': ['food', 'beverage', 'restaurant', 'dining', 'nutrition', 'snack', 'drink'],
+            'consumer: other': ['consumer', 'retail', 'brand', 'lifestyle', 'beauty', 'personal care'],
+            'consumer: retail': ['retail', 'store', 'shopping', 'ecommerce', 'fashion', 'apparel', 'goods'],
+            'energy': ['energy', 'oil', 'gas', 'renewable', 'power', 'solar', 'wind', 'nuclear', 'utility'],
+            'financial services': ['bank', 'finance', 'capital', 'investment', 'insurance', 'fund', 'fintech', 'payment'],
+            'industrial automation': ['automation', 'robotics', 'manufacturing', 'industrial', 'machinery'],
+            'industrial products and services': ['industrial', 'manufacturing', 'engineering', 'equipment', 'machinery'],
+            'industrial: electronics': ['electronics', 'semiconductor', 'components', 'circuits', 'hardware'],
+            'internet / ecommerce': ['internet', 'ecommerce', 'online', 'digital', 'marketplace', 'platform'],
+            'leisure': ['leisure', 'entertainment', 'gaming', 'sports', 'travel', 'tourism', 'hospitality'],
+            'media': ['media', 'broadcasting', 'publishing', 'content', 'advertising', 'marketing'],
+            'real estate': ['real estate', 'property', 'reit', 'building', 'development', 'commercial'],
+            'services (other)': ['services', 'consulting', 'professional', 'outsourcing', 'support'],
+            'telecommunications: carriers': ['telecom', 'telecommunications', 'wireless', 'network', 'carrier', 'mobile'],
+            'transportation': ['transportation', 'logistics', 'shipping', 'freight', 'airline', 'railway']
         }
         
         self.geo_keywords = {
@@ -1156,16 +1174,24 @@ def main():
         
         allowed_cats = [
             "Automotive",
-            "Computer software", 
+            "Chemicals and materials",
+            "Computer software",
+            "Construction",
             "Consumer: Foods",
             "Consumer: Other",
             "Consumer: Retail",
-            "Defense",
+            "Energy",
             "Financial Services",
             "Industrial automation",
             "Industrial products and services",
             "Industrial: Electronics",
-            "Services (other)"
+            "Internet / ecommerce",
+            "Leisure",
+            "Media",
+            "Real Estate",
+            "Services (other)",
+            "Telecommunications: Carriers",
+            "Transportation"
         ]
         
         for cat in allowed_cats:
@@ -1199,21 +1225,23 @@ Consumer: Foods
 
 6. Moyca attracts interest from industrial, financial groups - report (translated)
 
-Consumer: Other
-
-7. Eurmoda poised to close two acquisitions this year, double turnover – sponsor
-
 Energy
 
-8. Solar power company seeks strategic investor
+7. Solar power company seeks strategic investor
 
-9. Naturgy voluntary takeover bid gets 86.37% acceptance
+8. Naturgy voluntary takeover bid gets 86.37% acceptance
 
 Financial Services
 
-10. Metro Bank majority owner Gilinski considers sale of stake – report
+9. Metro Bank majority owner Gilinski considers sale of stake – report
 
-11. Athora in talks to acquire PIC for up to GBP 5bn – report
+10. Athora in talks to acquire PIC for up to GBP 5bn – report
+
+Transportation
+
+11. Logistics company seeks EUR 200m for European expansion
+
+12. Railway operator announces acquisition of freight division
 
 1. Daimler Truck, Volvo launch software JV Coretura
 
