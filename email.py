@@ -744,8 +744,9 @@ class SmartTextProcessor:
         formatted_lines = []
         current_section = None
         in_categorized_section = False
+        in_detailed_section = False
         
-        for line in lines:
+        for i, line in enumerate(lines):
             line = line.strip()
             if not line:
                 formatted_lines.append('')
@@ -755,6 +756,10 @@ class SmartTextProcessor:
             if self._is_section_header(line):
                 current_section = line
                 in_categorized_section = True
+                # Add separator if ending a detailed section
+                if in_detailed_section:
+                    formatted_lines.append("-------------------------------------------------------------------------")
+                    in_detailed_section = False
                 # Add spacing before section headers
                 if formatted_lines and formatted_lines[-1] != '':
                     formatted_lines.append('')
@@ -771,12 +776,17 @@ class SmartTextProcessor:
                     # If this is a detailed press release (not in categorized section) 
                     # and we know its industry, add the industry header
                     if not in_categorized_section and item_number in number_to_category:
+                        # Add separator if transitioning from a previous detailed section
+                        if in_detailed_section:
+                            formatted_lines.append("-------------------------------------------------------------------------")
+                        
                         industry = number_to_category[item_number]
                         # Add industry header before the numbered item
                         if formatted_lines and formatted_lines[-1] != '':
                             formatted_lines.append('')  # Add spacing
                         formatted_lines.append(industry.upper())
                         formatted_lines.append('')  # Add spacing after header
+                        in_detailed_section = True
                 
                 formatted_lines.append(line)
                 formatted_lines.append('')  # Add blank line after numbered items
