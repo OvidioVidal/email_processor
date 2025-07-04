@@ -509,6 +509,15 @@ class SmartTextProcessor:
         if not section_name:
             return False
         
+        # Safety check: ensure allowed_categories is properly initialized
+        if not hasattr(self, 'allowed_categories') or self.allowed_categories is None:
+            # Reset to default if somehow corrupted
+            self.allowed_categories = {
+                'automotive', 'chemicals and materials', 'computer software', 'consumer: foods', 'consumer: other', 
+                'consumer: retail', 'defense', 'financial services', 'industrial automation',
+                'industrial products and services', 'industrial: electronics', 'services (other)'
+            }
+        
         section_lower = section_name.lower().strip()
         
         # Direct match first
@@ -1263,6 +1272,14 @@ def main():
                 st.session_state.processor.allowed_categories = {
                     ind.lower() for ind in selected_industries
                 }
+            else:
+                # If no industries selected, use default set to prevent errors
+                st.session_state.processor.allowed_categories = {
+                    'automotive', 'chemicals and materials', 'computer software', 'consumer: foods', 'consumer: other', 
+                    'consumer: retail', 'defense', 'financial services', 'industrial automation',
+                    'industrial products and services', 'industrial: electronics', 'services (other)'
+                }
+                st.warning("⚠️ No industries selected. Using default set to prevent errors.")
         elif filter_mode == "All Industries":
             # Include all industries
             st.session_state.processor.allowed_categories = st.session_state.processor.all_industries.copy()
@@ -1270,7 +1287,7 @@ def main():
         else:  # Default Set
             # Reset to default
             st.session_state.processor.allowed_categories = {
-                'automotive', 'computer software', 'consumer: foods', 'consumer: other', 
+                'automotive', 'chemicals and materials', 'computer software', 'consumer: foods', 'consumer: other', 
                 'consumer: retail', 'defense', 'financial services', 'industrial automation',
                 'industrial products and services', 'industrial: electronics', 'services (other)'
             }
